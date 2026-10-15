@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 
 use chrono::{DateTime, Utc};
+use metrics::counter;
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
@@ -23,6 +24,7 @@ use crate::batch::{Block, SessionKey};
 use crate::index::{
     block_index, image_index, write_parquet, BlockIndexRow, ImageIndexRow, IndexError,
 };
+use crate::rewrite::{canonical_strings, UrlRewrite};
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -108,8 +110,14 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
             continue;
         };
         let content_key = image_content_key(team_key);
+        let mut rewrite = UrlRewrite::new(
+            &block.remote_urls,
+            block.session.team_id,
+            key_month,
+            team_key,
+        );
         block.stats.url_fingerprints = url_fingerprints(&key.key, &block_urls(block));
-        let images = prepared.images.entry(block.session.team_id).or_default();
+        let mut block_images = Vec::new();
         let mut lines = Vec::with_capacity(
             block.stats.byte_size as usize + block.stats.event_count as usize * 16,
         );
@@ -131,11 +139,12 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
                 lines.push(b'[');
                 lines.extend_from_slice(&window);
                 lines.push(b',');
-                lines.extend_from_slice(
+                let canonical = canonical_strings(
                     extracted
                         .as_deref()
                         .unwrap_or(&message.inner[event.span.0..event.span.1]),
                 );
+                lines.extend_from_slice(&rewrite.apply(&canonical));
                 lines.extend_from_slice(b"]\n");
                 let line = (lines.len() - line_start) as u64;
                 block.stats.written_jsonl_bytes += line;
@@ -148,10 +157,18 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
                 .map(|i| i.bytes.len() as u64)
                 .sum::<u64>();
             block.stats.images_inline += sink.left_inline;
-            for image in sink.images {
-                if seen.insert(image.reference.clone()) {
-                    images.push(image);
-                }
+            block_images.extend(sink.images);
+        }
+        // Fail closed: a declined URL, a credential or a private host, must not reach storage.
+        if !rewrite.finish() {
+            counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => "declined_unrewritten")
+                .increment(1);
+            continue;
+        }
+        let images = prepared.images.entry(block.session.team_id).or_default();
+        for image in block_images {
+            if seen.insert(image.reference.clone()) {
+                images.push(image);
             }
         }
         prepared.blocks.push(PreparedBlock {
@@ -440,6 +457,8 @@ mod tests {
             messages: vec![message],
             stats: BlockStats::default(),
             moments: Vec::new(),
+            image_urls: Vec::new(),
+            remote_urls: Vec::new(),
         }
     }
 
@@ -452,6 +471,114 @@ mod tests {
 
     fn uri(bytes: &[u8]) -> String {
         format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    }
+
+    /// The block's stored lines, after the inspector named its remote URLs.
+    fn stored_lines(events: Value, extra: &[&str]) -> String {
+        let mut inspected = block("kept", events);
+        let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
+        let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
+        for message in &inspected.messages {
+            inspector.observe_message(&mut inspection, message);
+        }
+        inspected.remote_urls = inspection.finish().remote_urls;
+        inspected
+            .remote_urls
+            .extend(extra.iter().map(|url| (*url).to_owned()));
+        let mut keys = FlushKeys::default();
+        keys.sessions.insert(
+            SessionId {
+                team_id: 7,
+                session_id: "kept".to_owned(),
+            },
+            Key {
+                key: [5; 32],
+                key_month: "2026-10".to_owned(),
+            },
+        );
+        keys.team_months.insert(7, [6; 32]);
+        let mut blocks = vec![inspected];
+        let prepared = prepare(&mut blocks, &keys, "2026-10");
+        prepared
+            .blocks
+            .first()
+            .map(|b| String::from_utf8(b.lines.clone()).unwrap())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn replaces_the_sources_of_a_node_the_inspector_does_not_know() {
+        let (signed, public) = (
+            "https://bucket.s3.amazonaws.com/avatar.png?X-Amz-Signature=abc123",
+            "HTTPS://cdn.example.com/avatar.png",
+        );
+        // This process never saw node 99: the session started before a restart.
+        let lines = stored_lines(
+            json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": signed, "srcset": format!("{public} 2x")}}]}}]),
+            &[],
+        );
+        let reference = crate::urls::url_reference(
+            public,
+            7,
+            "2026-10",
+            &replay_core_v4::seal::image_url_key(&[6; 32]),
+        )
+        .unwrap()
+        .1;
+        assert!(
+            lines.contains(&format!(
+                r#""src":"{}","srcset":"{reference} 2x""#,
+                crate::rewrite::declined_marker("credential")
+            )),
+            "{lines}"
+        );
+        // A declined URL the inspector named but the stored bytes do not show as it read it fails the whole block.
+        let event =
+            json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/"}}]);
+        assert_eq!(stored_lines(event.clone(), &[signed]), "");
+        assert!(!stored_lines(event, &[public]).is_empty());
+    }
+
+    #[test]
+    fn a_block_carries_the_reference_its_fetch_job_names() {
+        let (fetched, declined) = (
+            "https://cdn.example.com/a.png",
+            "https://cdn.example.com/a.png?token=secret",
+        );
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
+        let mut blocks = vec![block("kept", events)];
+        blocks[0].image_urls = vec![fetched.to_owned()];
+        blocks[0].remote_urls = vec![fetched.to_owned(), declined.to_owned()];
+        let mut keys = FlushKeys::default();
+        keys.sessions.insert(
+            SessionId {
+                team_id: 7,
+                session_id: "kept".to_owned(),
+            },
+            Key {
+                key: [5; 32],
+                key_month: "2026-10".to_owned(),
+            },
+        );
+        keys.team_months.insert(7, [6; 32]);
+        let jobs = crate::urls::fetch_jobs(&mut blocks, &keys, "2026-10", 1, &|_| false);
+        let lines = String::from_utf8(
+            prepare(&mut blocks, &keys, "2026-10").blocks[0]
+                .lines
+                .clone(),
+        )
+        .unwrap();
+        let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
+        assert!(
+            lines.contains(&format!(r#""src":"{reference}""#)),
+            "{lines}"
+        );
+        assert!(lines.contains(&format!(
+            r#""srcset":"{} 2x""#,
+            crate::rewrite::declined_marker("credential")
+        )));
+        assert!(!lines.contains("cdn.example.com"));
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 //! Everything the recorder learns about one session, block by block.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
@@ -47,17 +48,51 @@ pub struct SessionInspector {
 pub struct BlockInspection {
     counter: EventCounter,
     moments: Vec<Moment>,
+    image_urls: Vec<String>,
+    remote_urls: HashSet<String>,
     events: u32,
 }
 
+/// What the inspector learned about one block.
+pub struct Inspected {
+    pub stats: BlockStats,
+    pub moments: Vec<Moment>,
+    /// Remote image URLs the block's DOM referenced, for the image fetcher.
+    pub image_urls: Vec<String>,
+    /// Every remote URL in an image slot of the block, which the writer replaces with its reference.
+    pub remote_urls: Vec<String>,
+}
+
 impl BlockInspection {
-    pub fn finish(self) -> (BlockStats, Vec<Moment>) {
-        (self.counter.finish(), self.moments)
+    pub fn finish(self) -> Inspected {
+        Inspected {
+            stats: self.counter.finish(),
+            moments: self.moments,
+            image_urls: self.image_urls,
+            remote_urls: self.remote_urls.into_iter().collect(),
+        }
     }
 }
 
 impl SessionInspector {
+    /// Drops what the session learned about its DOM and keeps its activity, clicks and page: its blocks are cold
+    /// starts until a full snapshot, and each window's mutations go unchecked until that window's next snapshot.
+    pub fn evict_dom(&mut self) {
+        self.dom = DomInspector::after_eviction();
+        self.decided = true;
+        self.cold = true;
+        self.undecided = 0;
+    }
+
+    pub fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.dom.retained_bytes()
+            + self.activity.retained_bytes()
+            + self.last_href.as_ref().map_or(0, String::capacity)
+    }
+
     pub fn observe_message(&mut self, block: &mut BlockInspection, message: &Message) {
+        self.dom.start_message();
         let window = message.window_id.clone().unwrap_or_default();
         if let Some(id) = message.window_id.as_deref() {
             let ids = &mut block.counter.stats.window_ids;
@@ -71,6 +106,7 @@ impl SessionInspector {
         for event in &message.events {
             self.observe(block, &message.inner, event, &window);
         }
+        self.dom.finish_message();
     }
 
     fn observe(
@@ -108,7 +144,9 @@ impl SessionInspector {
         let observed = self
             .dom
             .observe(inner, event, window, &mut block.counter.stats);
-        if event.kind == Some(FULL_SNAPSHOT) {
+        block.image_urls.extend(self.dom.take_image_urls());
+        block.remote_urls.extend(self.dom.take_remote_urls());
+        if observed.full_snapshot {
             self.cold = false;
         }
         let stats = &mut block.counter.stats;
@@ -197,7 +235,8 @@ mod tests {
     fn inspect(session: &mut SessionInspector, message: &Message) -> (BlockStats, Vec<Moment>) {
         let mut block = BlockInspection::default();
         session.observe_message(&mut block, message);
-        block.finish()
+        let inspected = block.finish();
+        (inspected.stats, inspected.moments)
     }
 
     fn big_mutation(ts: i64) -> Value {
@@ -259,7 +298,7 @@ mod tests {
             session.observe_message(&mut block, &message_in(Some(&window), moved.clone()));
         }
         let windows: Vec<String> = (0..MAX_WINDOW_IDS).map(|w| format!("w{w}")).collect();
-        assert_eq!(block.finish().0.window_ids, windows);
+        assert_eq!(block.finish().stats.window_ids, windows);
     }
 
     #[test]
@@ -353,8 +392,10 @@ mod tests {
             big_mutation(1),
             {"type": 3, "timestamp": 2, "data": {"source": 1, "positions": []}},
         ]));
-        let (stats, _) = inspect(&mut SessionInspector::default(), &mid_session);
+        let (stats, moments) = inspect(&mut SessionInspector::default(), &mid_session);
         assert!(stats.cold_start);
+        let kinds: Vec<_> = moments.iter().map(|m| (m.kind, m.event_index)).collect();
+        assert_eq!(kinds, [("dom_change", 0)]);
         // Nothing here says the session cannot play: its snapshot came before this process saw it.
         assert_eq!(
             (
