@@ -209,8 +209,10 @@ In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and 
 Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
 Both carry `team_id`, the field the Python guards bind, and `noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
 
-The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
-lookup alone confirms the path to whoever runs the collaborator.
+The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under the guard names `cymbal_sourcemap` and `batch_import_s3_endpoint`.
+Both take the team from their caller, so those lines name a project.
+
+Every check runs on cloud only, and each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain

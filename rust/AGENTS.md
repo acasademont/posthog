@@ -12,3 +12,9 @@ When emitting metrics via the `metrics` crate (`histogram!`, `counter!`, `gauge!
 ## personhog
 
 - **A change to the publish outbox contract between `personhog-identity` and `personhog-publisher` lands in the publisher first, in its own PR, and in identity in a later PR.** The two are separate deployments with no ordering between them. The contract (the outbox row shapes, the `lifecycle_op_person.moved` entries, the pointer cursor, the GC guard) is listed under "Publish outbox contract" in [personhog-identity/README.md](personhog-identity/README.md). Read it before you change `rust/personhog-identity/src/publish/`, the outbox writers in `src/lifecycle/` and `src/storage/`, or a persons migration that touches the outbox or `lifecycle_op_person`.
+
+## Out-of-band interaction domains
+
+Call `common_dns::oob_domains::note_oob_domain(host, "<guard>")` before a crate resolves or dials a host that a customer supplied.
+`OOB_DOMAINS` in `common/dns/src/oob_domains.rs` mirrors `posthog/security/crosslang/oob_domains.json`, so edit the json first and the mirror second.
+The parity test in `common-dns` fails while the two differ.
