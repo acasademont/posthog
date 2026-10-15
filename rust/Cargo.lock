@@ -10949,6 +10949,7 @@ dependencies = [
 name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "arc-swap",
  "arrow-array",
  "arrow-schema",
