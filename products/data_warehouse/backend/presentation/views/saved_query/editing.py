@@ -26,7 +26,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -67,6 +67,13 @@ GENERIC_LINEAGE_SYNC_ERROR = (
 def _lineage_sync_error_detail(error: Exception) -> str:
     # The marker is served verbatim by the node API, so only a message written for the user may reach it.
     return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
+
+def _capture_unless_user_error(error: Exception) -> None:
+    # Errors in the user's own SQL are not defects. Classify by error code, not by class, because
+    # some user-safe ClickHouse codes, for example UNKNOWN_IDENTIFIER, are not ExposedCHQueryError.
+    if classify_query_error(error) != QueryErrorCategory.USER_ERROR:
+        capture_exception(error)
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -366,7 +373,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
                 raise _view_types_validation_error(e)
 
@@ -409,7 +416,7 @@ class DataWarehouseSavedQuerySerializer(
                 with transaction.atomic():
                     modeling_api.sync_saved_query_to_dag(view)
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
             if sync_frequency is not None:
@@ -499,7 +506,7 @@ class DataWarehouseSavedQuerySerializer(
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
 
@@ -553,7 +560,7 @@ class DataWarehouseSavedQuerySerializer(
             try:
                 view.setup_model_paths()
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
@@ -604,7 +611,7 @@ class DataWarehouseSavedQuerySerializer(
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view, dag=dag)
                 except Exception as e:
-                    capture_exception(e)
+                    _capture_unless_user_error(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(
                         view.team_id, view.id, _lineage_sync_error_detail(e), dag_id=dag.id if dag else None
