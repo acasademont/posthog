@@ -532,8 +532,10 @@ def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
 
 
 class TestSpineInclusion(BaseTest):
-    def _report(self, status, *, promoted_at=None, created_at=BEFORE_CUTOFF):
-        report = SignalReport.objects.create(team=self.team, status=status, title="t", summary="s")
+    def _report(self, status, *, promoted_at=None, created_at=BEFORE_CUTOFF, listed_in_inbox=True):
+        report = SignalReport.objects.create(
+            team=self.team, status=status, title="t", summary="s", listed_in_inbox=listed_in_inbox
+        )
         SignalReport.objects.filter(id=report.id).update(created_at=created_at, promoted_at=promoted_at)
         return str(report.id)
 
@@ -545,6 +547,8 @@ class TestSpineInclusion(BaseTest):
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
         created_after_cutoff = self._report(SignalReport.Status.READY, created_at=AFTER_SNAPSHOT_END)
+        self._report(SignalReport.Status.READY, listed_in_inbox=False)
+        self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF, listed_in_inbox=False)
 
         in_spine = {
             str(report_id)

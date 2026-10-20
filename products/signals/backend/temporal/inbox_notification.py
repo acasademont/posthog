@@ -128,7 +128,7 @@ def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
 
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Guard on status: a deferred wait can outlast the READY state (suppressed/deleted/re-promoted).
-    report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
+    report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status", "listed_in_inbox").first()
     if report is None or report.status != SignalReport.Status.READY:
         logger.info(
             "inbox notification skipped: report not READY",
@@ -136,6 +136,11 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
             team_id=team_id,
             status=report.status if report else None,
         )
+        return 0
+    # A report a scout kept out of the inbox gets no inbox card. The claim stays free, so a later
+    # settle still notifies if a scout that lists its reports joins the report.
+    if not report.listed_in_inbox:
+        logger.info("inbox notification skipped: report not listed in inbox", report_id=report_id, team_id=team_id)
         return 0
 
     from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications

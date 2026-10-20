@@ -36,9 +36,10 @@ attribution on status transitions.
 
 The `ignored` verdict only applies when there is fair evidence to judge: the scout must hold at
 least one touched report older than `ESTABLISHED_REPORT_AGE` (a report nobody has seen yet is
-not a report nobody wanted), and Slack-routed scouts are exempt from it entirely because their
-output is consumed in Slack where no evidence flows back. A scout with output but no judgeable
-report evidence (findings-only, Slack-routed, or all reports too fresh) is left alone.
+not a report nobody wanted). Slack-routed scouts and scouts that keep their reports out of the
+shared inbox are exempt from it entirely, because their output is consumed where no evidence flows
+back. A scout with output but no judgeable report evidence (findings-only, Slack-routed, kept out
+of the inbox, or all reports too fresh) is left alone.
 
 The sweep speaks the scout lifecycle vocabulary rather than keeping fields of its own. Every
 write goes through `transition_status_by_system`, whose writer-scoped ownership rule keeps this
@@ -228,16 +229,17 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
     if name not in assessment.judgeable:
         return
 
-    # A Slack-routed scout's output is consumed in Slack, where no evidence flows back, so the
-    # `ignored` verdict cannot be trusted for it. Its silence still warns below.
+    # A Slack-routed scout's output is consumed in Slack, and a scout kept out of the inbox puts its
+    # reports where nobody browses. No evidence flows back from either, so the `ignored` verdict
+    # cannot be trusted for them. Their silence still warns below.
     slack_routed = get_scout_slack_destination(config.output_destinations) is not None
-    if name in assessment.judged_on_reports and not slack_routed:
+    if name in assessment.judged_on_reports and not slack_routed and config.lists_reports_in_inbox:
         _apply_ignored_verdict(config, outcome, now, had_output=name in assessment.emitted, sweep_warned=sweep_warned)
         return
 
     if name in assessment.emitted:
         # Producing output, but nothing judgeable on the report side (findings-only,
-        # Slack-routed, or every report still fresh). Nothing to hold against it; a warning it
+        # Slack-routed, kept out of the inbox, or every report still fresh). Nothing to hold against it; a warning it
         # picked up earlier under different evidence gets cleared.
         if sweep_warned and _transition(config, SignalScoutConfig.Status.ACTIVE, config.pause_reason, evaluated_at=now):
             outcome.recovered += 1
@@ -247,8 +249,8 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
     # a watch scout that only speaks when something is wrong looks exactly like this.
     if sweep_warned and config.pause_reason == SignalScoutConfig.PauseReason.IGNORED:
         # The evidence behind the scheduled pause is gone (the touching runs aged past the
-        # lookback, or the scout was re-routed to Slack since the warning), so the pause must not
-        # land on stale grounds. Downgrade to the badge-only warning. Deliberately not capped:
+        # lookback, or the scout moved to Slack or out of the inbox since the warning), so the
+        # pause must not land on stale grounds. Downgrade to the badge-only warning. Deliberately not capped:
         # deferring a downgrade would leave the scout scheduled to pause. Appended to `warned` so
         # the analytics event re-fires with the corrected reason.
         if _transition(

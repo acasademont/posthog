@@ -167,6 +167,8 @@ class TestReportsForBriefing(BaseTest):
         self._urgent_report("Not shown")
         resolved = self._urgent_report("Shown, resolved since")
         SignalReport.objects.filter(pk=resolved.pk).update(status=SignalReport.Status.RESOLVED)
+        unlisted = self._urgent_report("Kept out of the inbox")
+        SignalReport.objects.filter(pk=unlisted.pk).update(listed_in_inbox=False)
 
         counts = open_report_counts(
             team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]

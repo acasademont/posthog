@@ -99,9 +99,10 @@ def _latest_priority() -> Subquery:
 
 
 def _open_reports(team_id: int) -> QuerySet[SignalReport]:
-    """The reports the briefing may show and count: open, judged actionable, not already addressed."""
+    """The reports the briefing may show and count: listed in the inbox, open, judged actionable, not
+    already addressed."""
     return (
-        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES)
+        SignalReport.objects.filter(team_id=team_id, status__in=_OPEN_STATUSES, listed_in_inbox=True)
         .exclude(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
         .exclude(latest_already_addressed=True)
     )

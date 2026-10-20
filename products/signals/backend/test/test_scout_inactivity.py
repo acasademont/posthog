@@ -330,12 +330,16 @@ class TestScoutInactivitySweep(BaseTest):
         assert outcome.warned == []
         assert self._reload().status == SignalScoutConfig.Status.ACTIVE
 
-    def test_a_slack_routed_scout_is_not_judged_on_report_consumption(self) -> None:
-        # Slack output is consumed in Slack, where no evidence flows back, so the unconsumed
-        # verdict cannot be trusted for these scouts.
-        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
-            output_destinations={"slack": {"integration_id": 1, "channel": "C123"}}
-        )
+    @parameterized.expand(
+        [
+            ("slack_routed", {"slack": {"integration_id": 1, "channel": "C123"}}),
+            ("kept_out_of_the_inbox", {"inbox": False}),
+        ]
+    )
+    def test_a_scout_whose_output_is_consumed_elsewhere_is_not_judged_on_report_consumption(
+        self, _name: str, output_destinations: dict
+    ) -> None:
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(output_destinations=output_destinations)
         self._emitting_runs(self._report())
 
         outcome = sweep_inactive_scouts(now=self.now)

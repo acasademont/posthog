@@ -39,7 +39,11 @@ def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
     directly-authored report until a user happened to interact with it, biasing the inventory toward
     reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
     is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
-    null) still cannot leak in through the second branch."""
-    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
+    null) still cannot leak in through the second branch.
+
+    A report a scout kept out of the inbox was never shown there, so its silence is not a sign that
+    users ignored it. Including it would teach the model false shown-and-ignored examples."""
+    shown = Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
         promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
     )
+    return shown & Q(listed_in_inbox=True)

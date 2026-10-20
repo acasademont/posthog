@@ -113,8 +113,14 @@ def test_state_task_failed_no_pr_is_terminal(team):
 
 
 @pytest.mark.django_db
-def test_send_skips_when_report_not_ready(team):
-    report = _make_report(team, status=SignalReport.Status.SUPPRESSED)
+@pytest.mark.parametrize(
+    "status,listed_in_inbox",
+    [(SignalReport.Status.SUPPRESSED, True), (SignalReport.Status.READY, False)],
+    ids=["not_ready", "not_listed_in_inbox"],
+)
+def test_send_skips_a_report_that_is_not_in_the_inbox(team, status, listed_in_inbox):
+    report = _make_report(team, status=status)
+    SignalReport.objects.filter(id=report.id).update(listed_in_inbox=listed_in_inbox)
     with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as mock_dispatch:
         sent = _send_report_inbox_notifications(team.id, str(report.id))
     assert sent == 0
