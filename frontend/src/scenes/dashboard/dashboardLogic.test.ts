@@ -4861,7 +4861,10 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardWidgetsEnabled).toBe(true)
         })
 
-        it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {
+        it.each([
+            ['a network error', new Error('Network error')],
+            ['a gateway timeout', Object.assign(new Error('Gateway timeout'), { status: 504 })],
+        ])('refreshDashboardWidgets sets friendly error when run_widgets fails with %s', async (_name, error) => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -4870,7 +4873,7 @@ describe('dashboardLogic', () => {
             const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             logic.actions.updateDashboardLastRefresh(dayjs())
             expect(logic.values.blockRefresh).toBe(true)
-            fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
+            fetchRunWidgetsMock.mockRejectedValueOnce(error)
 
             await expectLogic(logic, () => {
                 logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
