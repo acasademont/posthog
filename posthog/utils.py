@@ -1982,8 +1982,9 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
-    if isinstance(request_filters, dict):
-        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"filters_override": "filters_override must be a JSON object"})
+    request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
     return {**dashboard_filters, **request_filters}
 
 

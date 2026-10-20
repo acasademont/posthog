@@ -11804,6 +11804,10 @@ export type DashboardsRunWidgetsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRunWidgetsRetrieveFormat
     /**
+     * Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.
+     */
+    refresh?: boolean
+    /**
      * Comma-separated dashboard tile IDs to run widgets for.
      */
     tile_ids: string
