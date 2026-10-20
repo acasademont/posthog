@@ -1332,6 +1332,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
@@ -1414,6 +1417,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -2760,6 +2766,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
@@ -2845,6 +2854,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key

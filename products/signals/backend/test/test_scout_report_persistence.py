@@ -44,6 +44,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     record_content_revision,
+    scout_report_tags_in_use,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
@@ -1094,3 +1095,14 @@ class TestScoutReportSuggestedPrompts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored(other_report.report_id) == []
+
+
+class TestScoutReportTagsInUse(BaseTest):
+    def test_lists_the_team_s_live_tags_most_used_first(self) -> None:
+        for tags in (["billing", "api"], ["api"], ["web"], []):
+            SignalReport.objects.create(team=self.team, tags=tags)
+        SignalReport.objects.create(team=self.team, tags=["deleted-only"], status=SignalReport.Status.DELETED)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        SignalReport.objects.create(team=other_team, tags=["theirs"])
+
+        assert scout_report_tags_in_use(team_id=self.team.id) == ["api", "billing", "web"]

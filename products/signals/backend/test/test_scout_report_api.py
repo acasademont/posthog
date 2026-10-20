@@ -2465,6 +2465,45 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
 
+    @parameterized.expand(
+        [
+            ("omitted", {"append_note": "checked"}, ["cost-spike", "billing"], None),
+            ("null", {"append_note": "checked", "tags": None}, ["cost-spike", "billing"], None),
+            ("replaced", {"tags": ["API"]}, ["api"], 1),
+            ("cleared", {"tags": []}, [], 0),
+        ]
+    )
+    def test_edit_tags_replace_the_set_and_omitted_tags_keep_it(
+        self, _name: str, edit_fields: dict, expected_stored: list[str], expected_set: int | None
+    ) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data={**self._payload(), "tags": ["Cost Spike", "billing"]},
+                format="json",
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit_fields},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags_set"] == expected_set
+        assert SignalReport.objects.get(id=created["report_id"]).tags == expected_stored
+
+    def test_emit_with_an_invalid_tag_is_rejected_before_the_judge(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(CAPTURE_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "tags": ["!!!"]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_called()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
     def test_report_content_counts_ride_the_lifecycle_events(self) -> None:
         run = _make_run(self.team)
         charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
