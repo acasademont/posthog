@@ -239,8 +239,8 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
 
     if name in assessment.emitted:
         # Producing output, but nothing judgeable on the report side (findings-only,
-        # Slack-routed, kept out of the inbox, or every report still fresh). Nothing to hold against it; a warning it
-        # picked up earlier under different evidence gets cleared.
+        # Slack-routed, kept out of the inbox, or every report still fresh). Nothing to hold
+        # against it; a warning it picked up earlier under different evidence gets cleared.
         if sweep_warned and _transition(config, SignalScoutConfig.Status.ACTIVE, config.pause_reason, evaluated_at=now):
             outcome.recovered += 1
         return
@@ -250,9 +250,9 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
     if sweep_warned and config.pause_reason == SignalScoutConfig.PauseReason.IGNORED:
         # The evidence behind the scheduled pause is gone (the touching runs aged past the
         # lookback, or the scout moved to Slack or out of the inbox since the warning), so the
-        # pause must not land on stale grounds. Downgrade to the badge-only warning. Deliberately not capped:
-        # deferring a downgrade would leave the scout scheduled to pause. Appended to `warned` so
-        # the analytics event re-fires with the corrected reason.
+        # pause must not land on stale grounds. Downgrade to the badge-only warning. Deliberately
+        # not capped: deferring a downgrade would leave the scout scheduled to pause. Appended to
+        # `warned` so the analytics event re-fires with the corrected reason.
         if _transition(
             config, SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT, evaluated_at=now
         ):
