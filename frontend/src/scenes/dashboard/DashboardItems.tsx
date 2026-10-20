@@ -103,6 +103,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardWidgetsEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
+        widgetEditorTileId,
         scrollToBottomSignal,
         sizeKey,
     } = useValues(dashboardLogic)
@@ -123,6 +124,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         setTileOverride,
         setDashboardEditing,
+        setWidgetEditorTileId,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -695,10 +697,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         isDashboardEditMode={layoutEditMode}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
-                                            runResult?.error ?? refreshState?.error
+                                            runResult?.error ?? refreshState?.error,
+                                            runResult?.error_is_user_facing
                                         )}
                                         loading={!!refreshState?.loading}
                                         lastFetchedAt={refreshState?.fetchedAt}
+                                        openEditorOnMount={widgetEditorTileId === tile.id}
+                                        onEditorClose={
+                                            widgetEditorTileId === tile.id
+                                                ? () => setWidgetEditorTileId(null)
+                                                : undefined
+                                        }
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }

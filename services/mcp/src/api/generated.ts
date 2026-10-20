@@ -8257,14 +8257,225 @@ export namespace Schemas {
       config: CanvasAppWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | CanvasAppWidgetAddRequestOpenApi;
+    export type MetricsWidgetAddRequestOpenApiWidgetType = typeof MetricsWidgetAddRequestOpenApiWidgetType[keyof typeof MetricsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const MetricsWidgetAddRequestOpenApiWidgetType = {
+      Metrics: 'metrics',
+    } as const;
+
+    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
+
+
+    export const MetricsAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      Quantile: 'quantile',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface MetricsQueryGroupBy {
+      key: string;
+      scope?: MetricsAttributeScope | null;
+    }
+
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
+    export interface MetricsQueryClause {
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
+      filters?: MetricsQueryFilter[] | null;
+      groupBy?: MetricsQueryGroupBy[] | null;
+      metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
+      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+      name: string;
+      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+      quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
+    }
+
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
+    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
+
+
+    export const MetricsStatSummary = {
+      Latest: 'latest',
+      Average: 'average',
+      Total: 'total',
+    } as const;
+
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
+    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
+
+
+    export const MetricsDisplayType = {
+      Line: 'line',
+      Area: 'area',
+      Bar: 'bar',
+      Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
+    } as const;
+
+    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
+
+
+    export const MetricsAxisScale = {
+      Linear: 'linear',
+      Log: 'log',
+    } as const;
+
+    export interface MetricsYAxisSettings {
+      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
+      max?: number | null;
+      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+      min?: number | null;
+      scale?: MetricsAxisScale | null;
+      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
+      startAtZero?: boolean | null;
+    }
+
+    export interface MetricsDisplaySettings {
+      goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
+      /** `stat` display only: which summary the headline value shows. */
+      statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
+      type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
+      yAxis?: MetricsYAxisSettings | null;
+    }
+
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
+    /**
+     * A `MetricsQuery` as a metrics widget stores it.
+     *
+     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
+     */
+    export interface MetricsWidgetQuery {
+      /**
+         * Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.
+         * @maxItems 10
+         */
+      clauses?: MetricsQueryClause[];
+      /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+      dateRange?: DateRange | null;
+      /** Chart presentation. A node without it renders as a line chart. */
+      display?: MetricsDisplaySettings | null;
+      /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+      formula?: string | null;
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      interval?: string | null;
+      kind?: 'MetricsQuery';
+      /** How the query is written; the builder when unset. */
+      language?: MetricsQueryLanguage | null;
+      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+      promql?: string | null;
+      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. */
+      sql?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MetricsWidgetConfig {
+      /** Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query. */
+      query?: MetricsWidgetQuery;
+    }
+
+    export interface MetricsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: MetricsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the metric widget. */
+      config: MetricsWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | CanvasAppWidgetAddRequestOpenApi | MetricsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -11468,7 +11679,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -28409,6 +28620,7 @@ export namespace Schemas {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `metrics` - metrics
      * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
@@ -28424,6 +28636,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      Metrics: 'metrics',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
@@ -28441,6 +28654,7 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
+       * * `metrics` - metrics
        * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
        * * `survey_results` - survey_results */
@@ -28609,6 +28823,8 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** True when `error` explains the failure to the viewer (for example, no access or an invalid query) and can be shown as is. Other errors are generic. */
+      error_is_user_facing?: boolean;
     }
 
     export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
@@ -58468,157 +58684,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
-
-
-    export const MetricsAggregation = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      Quantile: 'quantile',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
-    export interface MetricsQueryGroupBy {
-      key: string;
-      scope?: MetricsAttributeScope | null;
-    }
-
-    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
-
-
-    export const MetricsOtelType = {
-      Gauge: 'gauge',
-      Sum: 'sum',
-      Histogram: 'histogram',
-      ExponentialHistogram: 'exponential_histogram',
-      Summary: 'summary',
-    } as const;
-
-    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
-
-
-    export const MetricsRangeFunction = {
-      Rate: 'rate',
-      Increase: 'increase',
-    } as const;
-
-    export interface MetricsQueryClause {
-      /** Omit to get one line per series (at most 100), without combining them */
-      aggregation?: MetricsAggregation | null;
-      filters?: MetricsQueryFilter[] | null;
-      groupBy?: MetricsQueryGroupBy[] | null;
-      metricName: string;
-      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
-      metricType?: MetricsOtelType | null;
-      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
-      name: string;
-      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
-      quantile?: number | null;
-      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
-      rangeFunction?: MetricsRangeFunction | null;
-    }
-
-    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
-
-
-    export const MetricsReducer = {
-      Last: 'last',
-      Mean: 'mean',
-      Min: 'min',
-      Max: 'max',
-      Sum: 'sum',
-      Delta: 'delta',
-    } as const;
-
-    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
-
-
-    export const MetricsNullMode = {
-      Gap: 'gap',
-      Zero: 'zero',
-      Connect: 'connect',
-    } as const;
-
-    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
-
-
-    export const MetricsStatSummary = {
-      Latest: 'latest',
-      Average: 'average',
-      Total: 'total',
-    } as const;
-
-    export interface MetricsThreshold {
-      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
-      color: string;
-      /** Lower bound of this band. The lowest step is the base color below every other step. */
-      value: number;
-    }
-
-    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
-
-
-    export const MetricsDisplayType = {
-      Line: 'line',
-      Area: 'area',
-      Bar: 'bar',
-      Stat: 'stat',
-      Gauge: 'gauge',
-      Bargauge: 'bargauge',
-      Table: 'table',
-      Heatmap: 'heatmap',
-    } as const;
-
-    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
-
-
-    export const MetricsAxisScale = {
-      Linear: 'linear',
-      Log: 'log',
-    } as const;
-
-    export interface MetricsYAxisSettings {
-      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
-      max?: number | null;
-      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
-      min?: number | null;
-      scale?: MetricsAxisScale | null;
-      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
-      startAtZero?: boolean | null;
-    }
-
-    export interface MetricsDisplaySettings {
-      goalLines?: GoalLine[] | null;
-      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
-      legendCalcs?: MetricsReducer[] | null;
-      /** How a null bucket renders on a time-series chart. */
-      nullMode?: MetricsNullMode | null;
-      /** How scalar panels and legend calcs collapse a series to one number. */
-      reduce?: MetricsReducer | null;
-      /** `stat` display only: which summary the headline value shows. */
-      statSummary?: MetricsStatSummary | null;
-      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
-      thresholds?: MetricsThreshold[] | null;
-      type?: MetricsDisplayType | null;
-      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
-      unit?: string | null;
-      yAxis?: MetricsYAxisSettings | null;
-    }
-
-    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
-
-
-    export const MetricsQueryLanguage = {
-      Builder: 'builder',
-      Promql: 'promql',
-      Sql: 'sql',
-    } as const;
-
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -68647,6 +68712,60 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_id: number | null;
+    }
+
+    export type MetricsWidgetCatalogEntryOpenApiWidgetType = typeof MetricsWidgetCatalogEntryOpenApiWidgetType[keyof typeof MetricsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const MetricsWidgetCatalogEntryOpenApiWidgetType = {
+      Metrics: 'metrics',
+    } as const;
+
+    export interface MetricsWidgetCatalogEntryOpenApi {
+      widget_type: MetricsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: MetricsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `metrics` - metrics
+     */
+    export type MetricsWidgetTypeEnum = typeof MetricsWidgetTypeEnum[keyof typeof MetricsWidgetTypeEnum];
+
+
+    export const MetricsWidgetTypeEnum = {
+      Metrics: 'metrics',
+    } as const;
+
+    export type MetricsWidgetUpdateRequestOpenApiWidgetType = typeof MetricsWidgetUpdateRequestOpenApiWidgetType[keyof typeof MetricsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const MetricsWidgetUpdateRequestOpenApiWidgetType = {
+      Metrics: 'metrics',
+    } as const;
+
+    export interface MetricsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: MetricsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the metric widget. Omit to leave unchanged. */
+      config?: MetricsWidgetConfig;
     }
 
     export interface MinimalPerson {
@@ -88602,7 +88721,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | CanvasAppWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | CanvasAppWidgetUpdateRequestOpenApi | MetricsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -116082,7 +116201,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -123901,6 +124020,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunWidgetsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRunWidgetsRetrieveFormat;
     /**
      * Comma-separated dashboard tile IDs to run widgets for.

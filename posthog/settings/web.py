@@ -840,6 +840,7 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
+            "MetricsWidgetTypeEnum": ["metrics"],
         }
     ),
 }

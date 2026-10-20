@@ -343,6 +343,21 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryClausesMax = 10
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDateRangeOneExcludeIncompletePeriodsDefault = false
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDateRangeOneExplicitDateDefault = false
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneNullModeDefault = `gap`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneReduceDefault = `last`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneStatSummaryDefault = `latest`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneTypeDefault = `line`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneYAxisOneScaleDefault = `linear`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneYAxisOneStartAtZeroDefault = true
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryKindDefault = `MetricsQuery`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryPromqlOneMax = 10000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQuerySqlOneMax = 10000
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = () => zod
@@ -547,16 +562,17 @@ export const DashboardsPartialUpdateBody = () => zod
                                     'experiment_results',
                                     'experiments_list',
                                     'logs_list',
+                                    'metrics',
                                     'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `metrics` - metrics\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `metrics` - metrics\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
@@ -1259,6 +1275,432 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 'Canvas to render in the tile. Null until the user picks one in the widget settings.'
                                             ),
                                     }),
+                                    zod.object({
+                                        query: zod
+                                            .object({
+                                                clauses: zod
+                                                    .array(
+                                                        zod.object({
+                                                            aggregation: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'sum',
+                                                                        'avg',
+                                                                        'count',
+                                                                        'min',
+                                                                        'max',
+                                                                        'quantile',
+                                                                        'rate',
+                                                                        'increase',
+                                                                        'histogram_quantile',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Omit to get one line per series (at most 100), without combining them'
+                                                                ),
+                                                            filters: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.object({
+                                                                            key: zod.string(),
+                                                                            op: zod.enum([
+                                                                                'eq',
+                                                                                'neq',
+                                                                                'regex',
+                                                                                'not_regex',
+                                                                            ]),
+                                                                            scope: zod
+                                                                                .union([
+                                                                                    zod.enum([
+                                                                                        'resource',
+                                                                                        'attribute',
+                                                                                        'auto',
+                                                                                    ]),
+                                                                                    zod.null(),
+                                                                                ])
+                                                                                .optional(),
+                                                                            value: zod.string(),
+                                                                        })
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            groupBy: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.object({
+                                                                            key: zod.string(),
+                                                                            scope: zod
+                                                                                .union([
+                                                                                    zod.enum([
+                                                                                        'resource',
+                                                                                        'attribute',
+                                                                                        'auto',
+                                                                                    ]),
+                                                                                    zod.null(),
+                                                                                ])
+                                                                                .optional(),
+                                                                        })
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            metricName: zod.string(),
+                                                            metricType: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'gauge',
+                                                                        'sum',
+                                                                        'histogram',
+                                                                        'exponential_histogram',
+                                                                        'summary',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series.'
+                                                                ),
+                                                            name: zod
+                                                                .string()
+                                                                .describe(
+                                                                    'Alias a formula refers to (e.g. \"a\"); must be unique within the query'
+                                                                ),
+                                                            quantile: zod
+                                                                .union([zod.number(), zod.null()])
+                                                                .optional()
+                                                                .describe(
+                                                                    'In (0, 1); required for `quantile` \/ `histogram_quantile` aggregations'
+                                                                ),
+                                                            rangeFunction: zod
+                                                                .union([zod.enum(['rate', 'increase']), zod.null()])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Applied to each series before `aggregation`, like `rate()` in PromQL'
+                                                                ),
+                                                        })
+                                                    )
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryClausesMax
+                                                    )
+                                                    .optional()
+                                                    .describe(
+                                                        'Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.'
+                                                    ),
+                                                dateRange: zod
+                                                    .union([
+                                                        zod.object({
+                                                            date_from: zod
+                                                                .union([zod.string(), zod.null()])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+                                                                ),
+                                                            date_to: zod
+                                                                .union([zod.string(), zod.null()])
+                                                                .optional()
+                                                                .describe(
+                                                                    'End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.'
+                                                                ),
+                                                            daysOfWeek: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.literal(1),
+                                                                            zod.literal(2),
+                                                                            zod.literal(3),
+                                                                            zod.literal(4),
+                                                                            zod.literal(5),
+                                                                            zod.literal(6),
+                                                                            zod.literal(7),
+                                                                        ])
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+                                                                ),
+                                                            excludeIncompletePeriods: zod
+                                                                .union([zod.boolean(), zod.null()])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDateRangeOneExcludeIncompletePeriodsDefault
+                                                                )
+                                                                .describe(
+                                                                    'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+                                                                ),
+                                                            explicitDate: zod
+                                                                .union([zod.boolean(), zod.null()])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDateRangeOneExplicitDateDefault
+                                                                )
+                                                                .describe(
+                                                                    'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+                                                                ),
+                                                        }),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Defaults to the last 24 hours when omitted; dashboard date filters override it'
+                                                    ),
+                                                display: zod
+                                                    .union([
+                                                        zod.object({
+                                                            goalLines: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.object({
+                                                                            borderColor: zod
+                                                                                .union([zod.string(), zod.null()])
+                                                                                .optional(),
+                                                                            calculation: zod
+                                                                                .union([
+                                                                                    zod.enum([
+                                                                                        'fixed',
+                                                                                        'mean',
+                                                                                        'median',
+                                                                                        'min',
+                                                                                        'max',
+                                                                                    ]),
+                                                                                    zod.null(),
+                                                                                ])
+                                                                                .optional()
+                                                                                .describe(
+                                                                                    'Recalculate from returned chart marks. An absent calculation uses the fixed value.'
+                                                                                ),
+                                                                            displayIfCrossed: zod
+                                                                                .union([zod.boolean(), zod.null()])
+                                                                                .optional(),
+                                                                            displayLabel: zod
+                                                                                .union([zod.boolean(), zod.null()])
+                                                                                .optional(),
+                                                                            label: zod.string(),
+                                                                            position: zod
+                                                                                .union([
+                                                                                    zod.enum(['start', 'end']),
+                                                                                    zod.null(),
+                                                                                ])
+                                                                                .optional(),
+                                                                            scope: zod
+                                                                                .union([
+                                                                                    zod.enum(['all', 'series']),
+                                                                                    zod.null(),
+                                                                                ])
+                                                                                .optional()
+                                                                                .describe(
+                                                                                    'SQL chart calculations use the primary axis, across all series or separately per series.'
+                                                                                ),
+                                                                            value: zod.number(),
+                                                                        })
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            legendCalcs: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.enum([
+                                                                            'last',
+                                                                            'mean',
+                                                                            'min',
+                                                                            'max',
+                                                                            'sum',
+                                                                            'delta',
+                                                                        ])
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.'
+                                                                ),
+                                                            nullMode: zod
+                                                                .union([
+                                                                    zod.enum(['gap', 'zero', 'connect']),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneNullModeDefault
+                                                                )
+                                                                .describe(
+                                                                    'How a null bucket renders on a time-series chart.'
+                                                                ),
+                                                            reduce: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'last',
+                                                                        'mean',
+                                                                        'min',
+                                                                        'max',
+                                                                        'sum',
+                                                                        'delta',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneReduceDefault
+                                                                )
+                                                                .describe(
+                                                                    'How scalar panels and legend calcs collapse a series to one number.'
+                                                                ),
+                                                            statSummary: zod
+                                                                .union([
+                                                                    zod.enum(['latest', 'average', 'total']),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneStatSummaryDefault
+                                                                )
+                                                                .describe(
+                                                                    '`stat` display only: which summary the headline value shows.'
+                                                                ),
+                                                            thresholds: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.object({
+                                                                            color: zod
+                                                                                .string()
+                                                                                .describe(
+                                                                                    'A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.'
+                                                                                ),
+                                                                            value: zod
+                                                                                .number()
+                                                                                .describe(
+                                                                                    'Lower bound of this band. The lowest step is the base color below every other step.'
+                                                                                ),
+                                                                        })
+                                                                    ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional()
+                                                                .describe(
+                                                                    'Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.'
+                                                                ),
+                                                            type: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'line',
+                                                                        'area',
+                                                                        'bar',
+                                                                        'stat',
+                                                                        'gauge',
+                                                                        'bargauge',
+                                                                        'table',
+                                                                        'heatmap',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneTypeDefault
+                                                                ),
+                                                            unit: zod
+                                                                .union([zod.string(), zod.null()])
+                                                                .optional()
+                                                                .describe(
+                                                                    'UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.'
+                                                                ),
+                                                            yAxis: zod
+                                                                .union([
+                                                                    zod.object({
+                                                                        max: zod
+                                                                            .union([zod.number(), zod.null()])
+                                                                            .optional()
+                                                                            .describe(
+                                                                                'Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot.'
+                                                                            ),
+                                                                        min: zod
+                                                                            .union([zod.number(), zod.null()])
+                                                                            .optional()
+                                                                            .describe(
+                                                                                'Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on.'
+                                                                            ),
+                                                                        scale: zod
+                                                                            .union([
+                                                                                zod.enum(['linear', 'log']),
+                                                                                zod.null(),
+                                                                            ])
+                                                                            .default(
+                                                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneYAxisOneScaleDefault
+                                                                            ),
+                                                                        startAtZero: zod
+                                                                            .union([zod.boolean(), zod.null()])
+                                                                            .default(
+                                                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryDisplayOneYAxisOneStartAtZeroDefault
+                                                                            )
+                                                                            .describe(
+                                                                                "When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero."
+                                                                            ),
+                                                                    }),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Chart presentation. A node without it renders as a line chart.'
+                                                    ),
+                                                formula: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Arithmetic over clause aliases (e.g. \"a \/ b\"); when set, only the formula series are returned'
+                                                    ),
+                                                interval: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.'
+                                                    ),
+                                                kind: zod
+                                                    .literal('MetricsQuery')
+                                                    .default(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryKindDefault
+                                                    ),
+                                                language: zod
+                                                    .union([zod.enum(['builder', 'promql', 'sql']), zod.null()])
+                                                    .optional()
+                                                    .describe('How the query is written; the builder when unset.'),
+                                                promql: zod
+                                                    .union([
+                                                        zod
+                                                            .string()
+                                                            .max(
+                                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQueryPromqlOneMax
+                                                            ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'PromQL expression, run as a range query. Used when `language` is `promql`.'
+                                                    ),
+                                                sql: zod
+                                                    .union([
+                                                        zod
+                                                            .string()
+                                                            .max(
+                                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneQuerySqlOneMax
+                                                            ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'HogQL SELECT over the posthog.metric\* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label.'
+                                                    ),
+                                                version: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('version of the node, used for schema migrations'),
+                                            })
+                                            .optional()
+                                            .describe(
+                                                'Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query.'
+                                            ),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1551,6 +1993,12 @@ export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
 })
 
 export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })
@@ -1712,6 +2160,23 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax =
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryClausesMax = 10
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExcludeIncompletePeriodsDefault = false
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExplicitDateDefault = false
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneNullModeDefault = `gap`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneReduceDefault = `last`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneStatSummaryDefault = `latest`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneTypeDefault = `line`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneScaleDefault = `linear`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneStartAtZeroDefault = true
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryKindDefault = `MetricsQuery`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryPromqlOneMax = 10000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQuerySqlOneMax = 10000
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
@@ -2985,12 +3450,458 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                             })
                             .describe('Configuration for the canvas app widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['metrics']),
+                        config: zod
+                            .object({
+                                query: zod
+                                    .object({
+                                        clauses: zod
+                                            .array(
+                                                zod.object({
+                                                    aggregation: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'sum',
+                                                                'avg',
+                                                                'count',
+                                                                'min',
+                                                                'max',
+                                                                'quantile',
+                                                                'rate',
+                                                                'increase',
+                                                                'histogram_quantile',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Omit to get one line per series (at most 100), without combining them'
+                                                        ),
+                                                    filters: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    op: zod.enum(['eq', 'neq', 'regex', 'not_regex']),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['resource', 'attribute', 'auto']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                    value: zod.string(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    groupBy: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['resource', 'attribute', 'auto']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    metricName: zod.string(),
+                                                    metricType: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'gauge',
+                                                                'sum',
+                                                                'histogram',
+                                                                'exponential_histogram',
+                                                                'summary',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series.'
+                                                        ),
+                                                    name: zod
+                                                        .string()
+                                                        .describe(
+                                                            'Alias a formula refers to (e.g. \"a\"); must be unique within the query'
+                                                        ),
+                                                    quantile: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'In (0, 1); required for `quantile` \/ `histogram_quantile` aggregations'
+                                                        ),
+                                                    rangeFunction: zod
+                                                        .union([zod.enum(['rate', 'increase']), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Applied to each series before `aggregation`, like `rate()` in PromQL'
+                                                        ),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryClausesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                'Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.'
+                                            ),
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+                                                        ),
+                                                    date_to: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.'
+                                                        ),
+                                                    daysOfWeek: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.union([
+                                                                    zod.literal(1),
+                                                                    zod.literal(2),
+                                                                    zod.literal(3),
+                                                                    zod.literal(4),
+                                                                    zod.literal(5),
+                                                                    zod.literal(6),
+                                                                    zod.literal(7),
+                                                                ])
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+                                                        ),
+                                                    excludeIncompletePeriods: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExcludeIncompletePeriodsDefault
+                                                        )
+                                                        .describe(
+                                                            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+                                                        ),
+                                                    explicitDate: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExplicitDateDefault
+                                                        )
+                                                        .describe(
+                                                            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Defaults to the last 24 hours when omitted; dashboard date filters override it'
+                                            ),
+                                        display: zod
+                                            .union([
+                                                zod.object({
+                                                    goalLines: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    borderColor: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    calculation: zod
+                                                                        .union([
+                                                                            zod.enum([
+                                                                                'fixed',
+                                                                                'mean',
+                                                                                'median',
+                                                                                'min',
+                                                                                'max',
+                                                                            ]),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional()
+                                                                        .describe(
+                                                                            'Recalculate from returned chart marks. An absent calculation uses the fixed value.'
+                                                                        ),
+                                                                    displayIfCrossed: zod
+                                                                        .union([zod.boolean(), zod.null()])
+                                                                        .optional(),
+                                                                    displayLabel: zod
+                                                                        .union([zod.boolean(), zod.null()])
+                                                                        .optional(),
+                                                                    label: zod.string(),
+                                                                    position: zod
+                                                                        .union([zod.enum(['start', 'end']), zod.null()])
+                                                                        .optional(),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['all', 'series']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional()
+                                                                        .describe(
+                                                                            'SQL chart calculations use the primary axis, across all series or separately per series.'
+                                                                        ),
+                                                                    value: zod.number(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    legendCalcs: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.enum(['last', 'mean', 'min', 'max', 'sum', 'delta'])
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.'
+                                                        ),
+                                                    nullMode: zod
+                                                        .union([zod.enum(['gap', 'zero', 'connect']), zod.null()])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneNullModeDefault
+                                                        )
+                                                        .describe('How a null bucket renders on a time-series chart.'),
+                                                    reduce: zod
+                                                        .union([
+                                                            zod.enum(['last', 'mean', 'min', 'max', 'sum', 'delta']),
+                                                            zod.null(),
+                                                        ])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneReduceDefault
+                                                        )
+                                                        .describe(
+                                                            'How scalar panels and legend calcs collapse a series to one number.'
+                                                        ),
+                                                    statSummary: zod
+                                                        .union([zod.enum(['latest', 'average', 'total']), zod.null()])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneStatSummaryDefault
+                                                        )
+                                                        .describe(
+                                                            '`stat` display only: which summary the headline value shows.'
+                                                        ),
+                                                    thresholds: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    color: zod
+                                                                        .string()
+                                                                        .describe(
+                                                                            'A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.'
+                                                                        ),
+                                                                    value: zod
+                                                                        .number()
+                                                                        .describe(
+                                                                            'Lower bound of this band. The lowest step is the base color below every other step.'
+                                                                        ),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.'
+                                                        ),
+                                                    type: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'line',
+                                                                'area',
+                                                                'bar',
+                                                                'stat',
+                                                                'gauge',
+                                                                'bargauge',
+                                                                'table',
+                                                                'heatmap',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .default(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneTypeDefault
+                                                        ),
+                                                    unit: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.'
+                                                        ),
+                                                    yAxis: zod
+                                                        .union([
+                                                            zod.object({
+                                                                max: zod
+                                                                    .union([zod.number(), zod.null()])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot.'
+                                                                    ),
+                                                                min: zod
+                                                                    .union([zod.number(), zod.null()])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on.'
+                                                                    ),
+                                                                scale: zod
+                                                                    .union([zod.enum(['linear', 'log']), zod.null()])
+                                                                    .default(
+                                                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneScaleDefault
+                                                                    ),
+                                                                startAtZero: zod
+                                                                    .union([zod.boolean(), zod.null()])
+                                                                    .default(
+                                                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneStartAtZeroDefault
+                                                                    )
+                                                                    .describe(
+                                                                        "When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero."
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Chart presentation. A node without it renders as a line chart.'),
+                                        formula: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Arithmetic over clause aliases (e.g. \"a \/ b\"); when set, only the formula series are returned'
+                                            ),
+                                        interval: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.'
+                                            ),
+                                        kind: zod
+                                            .literal('MetricsQuery')
+                                            .default(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryKindDefault
+                                            ),
+                                        language: zod
+                                            .union([zod.enum(['builder', 'promql', 'sql']), zod.null()])
+                                            .optional()
+                                            .describe('How the query is written; the builder when unset.'),
+                                        promql: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQueryPromqlOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'PromQL expression, run as a range query. Used when `language` is `promql`.'
+                                            ),
+                                        sql: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOneoneConfigOneQuerySqlOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'HogQL SELECT over the posthog.metric\* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label.'
+                                            ),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query.'
+                                    ),
+                            })
+                            .describe('Configuration for the metric widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -3091,6 +4002,23 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax =
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryClausesMax = 10
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExcludeIncompletePeriodsDefault = false
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExplicitDateDefault = false
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneNullModeDefault = `gap`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneReduceDefault = `last`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneStatSummaryDefault = `latest`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneTypeDefault = `line`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneScaleDefault = `linear`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneStartAtZeroDefault = true
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryKindDefault = `MetricsQuery`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryPromqlOneMax = 10000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQuerySqlOneMax = 10000
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
@@ -3933,6 +4861,409 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             })
                             .optional()
                             .describe('New configuration for the canvas app widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['metrics']),
+                        config: zod
+                            .object({
+                                query: zod
+                                    .object({
+                                        clauses: zod
+                                            .array(
+                                                zod.object({
+                                                    aggregation: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'sum',
+                                                                'avg',
+                                                                'count',
+                                                                'min',
+                                                                'max',
+                                                                'quantile',
+                                                                'rate',
+                                                                'increase',
+                                                                'histogram_quantile',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Omit to get one line per series (at most 100), without combining them'
+                                                        ),
+                                                    filters: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    op: zod.enum(['eq', 'neq', 'regex', 'not_regex']),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['resource', 'attribute', 'auto']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                    value: zod.string(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    groupBy: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['resource', 'attribute', 'auto']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    metricName: zod.string(),
+                                                    metricType: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'gauge',
+                                                                'sum',
+                                                                'histogram',
+                                                                'exponential_histogram',
+                                                                'summary',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series.'
+                                                        ),
+                                                    name: zod
+                                                        .string()
+                                                        .describe(
+                                                            'Alias a formula refers to (e.g. \"a\"); must be unique within the query'
+                                                        ),
+                                                    quantile: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'In (0, 1); required for `quantile` \/ `histogram_quantile` aggregations'
+                                                        ),
+                                                    rangeFunction: zod
+                                                        .union([zod.enum(['rate', 'increase']), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Applied to each series before `aggregation`, like `rate()` in PromQL'
+                                                        ),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryClausesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                'Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.'
+                                            ),
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+                                                        ),
+                                                    date_to: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.'
+                                                        ),
+                                                    daysOfWeek: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.union([
+                                                                    zod.literal(1),
+                                                                    zod.literal(2),
+                                                                    zod.literal(3),
+                                                                    zod.literal(4),
+                                                                    zod.literal(5),
+                                                                    zod.literal(6),
+                                                                    zod.literal(7),
+                                                                ])
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+                                                        ),
+                                                    excludeIncompletePeriods: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExcludeIncompletePeriodsDefault
+                                                        )
+                                                        .describe(
+                                                            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+                                                        ),
+                                                    explicitDate: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDateRangeOneExplicitDateDefault
+                                                        )
+                                                        .describe(
+                                                            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+                                                        ),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Defaults to the last 24 hours when omitted; dashboard date filters override it'
+                                            ),
+                                        display: zod
+                                            .union([
+                                                zod.object({
+                                                    goalLines: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    borderColor: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    calculation: zod
+                                                                        .union([
+                                                                            zod.enum([
+                                                                                'fixed',
+                                                                                'mean',
+                                                                                'median',
+                                                                                'min',
+                                                                                'max',
+                                                                            ]),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional()
+                                                                        .describe(
+                                                                            'Recalculate from returned chart marks. An absent calculation uses the fixed value.'
+                                                                        ),
+                                                                    displayIfCrossed: zod
+                                                                        .union([zod.boolean(), zod.null()])
+                                                                        .optional(),
+                                                                    displayLabel: zod
+                                                                        .union([zod.boolean(), zod.null()])
+                                                                        .optional(),
+                                                                    label: zod.string(),
+                                                                    position: zod
+                                                                        .union([zod.enum(['start', 'end']), zod.null()])
+                                                                        .optional(),
+                                                                    scope: zod
+                                                                        .union([
+                                                                            zod.enum(['all', 'series']),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional()
+                                                                        .describe(
+                                                                            'SQL chart calculations use the primary axis, across all series or separately per series.'
+                                                                        ),
+                                                                    value: zod.number(),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    legendCalcs: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.enum(['last', 'mean', 'min', 'max', 'sum', 'delta'])
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.'
+                                                        ),
+                                                    nullMode: zod
+                                                        .union([zod.enum(['gap', 'zero', 'connect']), zod.null()])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneNullModeDefault
+                                                        )
+                                                        .describe('How a null bucket renders on a time-series chart.'),
+                                                    reduce: zod
+                                                        .union([
+                                                            zod.enum(['last', 'mean', 'min', 'max', 'sum', 'delta']),
+                                                            zod.null(),
+                                                        ])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneReduceDefault
+                                                        )
+                                                        .describe(
+                                                            'How scalar panels and legend calcs collapse a series to one number.'
+                                                        ),
+                                                    statSummary: zod
+                                                        .union([zod.enum(['latest', 'average', 'total']), zod.null()])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneStatSummaryDefault
+                                                        )
+                                                        .describe(
+                                                            '`stat` display only: which summary the headline value shows.'
+                                                        ),
+                                                    thresholds: zod
+                                                        .union([
+                                                            zod.array(
+                                                                zod.object({
+                                                                    color: zod
+                                                                        .string()
+                                                                        .describe(
+                                                                            'A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.'
+                                                                        ),
+                                                                    value: zod
+                                                                        .number()
+                                                                        .describe(
+                                                                            'Lower bound of this band. The lowest step is the base color below every other step.'
+                                                                        ),
+                                                                })
+                                                            ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.'
+                                                        ),
+                                                    type: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                'line',
+                                                                'area',
+                                                                'bar',
+                                                                'stat',
+                                                                'gauge',
+                                                                'bargauge',
+                                                                'table',
+                                                                'heatmap',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .default(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneTypeDefault
+                                                        ),
+                                                    unit: zod
+                                                        .union([zod.string(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.'
+                                                        ),
+                                                    yAxis: zod
+                                                        .union([
+                                                            zod.object({
+                                                                max: zod
+                                                                    .union([zod.number(), zod.null()])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot.'
+                                                                    ),
+                                                                min: zod
+                                                                    .union([zod.number(), zod.null()])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on.'
+                                                                    ),
+                                                                scale: zod
+                                                                    .union([zod.enum(['linear', 'log']), zod.null()])
+                                                                    .default(
+                                                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneScaleDefault
+                                                                    ),
+                                                                startAtZero: zod
+                                                                    .union([zod.boolean(), zod.null()])
+                                                                    .default(
+                                                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryDisplayOneYAxisOneStartAtZeroDefault
+                                                                    )
+                                                                    .describe(
+                                                                        "When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero."
+                                                                    ),
+                                                            }),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Chart presentation. A node without it renders as a line chart.'),
+                                        formula: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Arithmetic over clause aliases (e.g. \"a \/ b\"); when set, only the formula series are returned'
+                                            ),
+                                        interval: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.'
+                                            ),
+                                        kind: zod
+                                            .literal('MetricsQuery')
+                                            .default(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryKindDefault
+                                            ),
+                                        language: zod
+                                            .union([zod.enum(['builder', 'promql', 'sql']), zod.null()])
+                                            .optional()
+                                            .describe('How the query is written; the builder when unset.'),
+                                        promql: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQueryPromqlOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'PromQL expression, run as a range query. Used when `language` is `promql`.'
+                                            ),
+                                        sql: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOneoneConfigOneQuerySqlOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'HogQL SELECT over the posthog.metric\* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label.'
+                                            ),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the metric widget. Omit to leave unchanged.'),
                     }),
                 ])
             )
