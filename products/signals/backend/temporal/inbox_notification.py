@@ -137,11 +137,6 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
             status=report.status if report else None,
         )
         return 0
-    # A report a scout kept out of the inbox gets no inbox card. The claim stays free, so a later
-    # settle still notifies if a scout that lists its reports joins the report.
-    if not report.listed_in_inbox:
-        logger.info("inbox notification skipped: report not listed in inbox", report_id=report_id, team_id=team_id)
-        return 0
 
     from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
 
@@ -165,6 +160,12 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         post_report_findings_to_tickets(team, report_id, signals)
     except Exception:
         logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
+
+    # A report a scout kept out of the inbox gets no inbox card. The support write-back above still
+    # runs. The claim stays free, so the card goes out if a listing scout joins the report later.
+    if not report.listed_in_inbox:
+        logger.info("inbox notification skipped: report not listed in inbox", report_id=report_id, team_id=team_id)
+        return 0
 
     # Claim the report immediately before the send. One conditional UPDATE, so a concurrent settle that
     # got past the workflow's already-notified check loses here instead of sending a second card.

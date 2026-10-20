@@ -796,7 +796,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
         spine_teams |= {
             str(report_id): team_id
             for report_id, team_id in SignalReport.objects.filter(
-                id__in=chunk, created_at__lt=snapshot_end
+                id__in=chunk, created_at__lt=snapshot_end, listed_in_inbox=True
             ).values_list("id", "team_id")
         }
     # A report whose organization has not opted in to AI training never reaches the snapshot. Its

@@ -563,6 +563,7 @@ class TestSpineInclusion(BaseTest):
         self.organization.is_ai_training_opted_in = True
         self.organization.save()
         consenting = self._report(SignalReport.Status.READY)
+        unlisted = self._report(SignalReport.Status.READY, listed_in_inbox=False)
         excluded: list[str] = []
         for consent in (False, None):
             organization = Organization.objects.create(name=f"consent-{consent}", is_ai_training_opted_in=consent)
@@ -575,9 +576,9 @@ class TestSpineInclusion(BaseTest):
         with (
             patch.object(dag, "skip_unconfigured", lambda context: False),
             patch.object(dag, "_tag_dagster_queries", lambda context, query_type: None),
-            # A label event that names an opted-out report must not pull it back into the spine.
+            # A label event that names an opted-out or unlisted report must not pull it back into the spine.
             patch.object(dag, "labels_team", lambda: self.team),
-            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
+            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],), (unlisted,)]),
             patch.object(dag, "s3_client", lambda: None),
             patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
             dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,

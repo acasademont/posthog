@@ -27,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -49,6 +50,10 @@ from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.spend import signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
+from products.signals.backend.temporal.inbox_notification import (
+    InboxNotificationInput,
+    SignalReportInboxNotificationWorkflow,
+)
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.refusal_review import generate_queries_or_preserve_refusal
 from products.signals.backend.temporal.signal_queries import (
@@ -779,6 +784,8 @@ class AssignAndEmitDbResult:
     # What the report's last completed pass covered, for the same reason.
     report_signals_researched: int = 0
     report_title: Optional[str] = None
+    # The signal listed a READY report that has not sent its inbox card yet.
+    needs_inbox_notification: bool = False
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -829,6 +836,26 @@ def _signal_lists_in_inbox(*, team_id: int, source_product: str, extra: dict) ->
     return scout_lists_reports_in_inbox(output_destinations)
 
 
+async def _start_inbox_notification(team_id: int, report_id: str) -> None:
+    # An unlisted READY report skipped its inbox card. Its research buckets can be exhausted, so no
+    # later settle would start the notification after it becomes listed. Best-effort: a failed start
+    # must not fail the signal assignment.
+    try:
+        client = await async_connect()
+        await client.start_workflow(
+            SignalReportInboxNotificationWorkflow.run,
+            InboxNotificationInput(team_id=team_id, report_id=report_id),
+            id=SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, report_id),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=timedelta(seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        pass
+    except Exception:
+        logger.exception("signals: failed to start inbox notification for a newly listed report", report_id=report_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -843,6 +870,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         with transaction.atomic():
             promoted = False
             promotion_suppressed = False
+            newly_listed = False
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -936,6 +964,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     if lists_in_inbox and not report.listed_in_inbox:
                         report.listed_in_inbox = True
                         update_fields.append("listed_in_inbox")
+                        newly_listed = True
                     # A research pass writes the title together with the summary. A later signal must
                     # not rename the report away from the cause that the summary explains.
                     if input.updated_title and not _has_completed_research(report):
@@ -1061,6 +1090,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
                 report_title=report.title,
+                needs_inbox_notification=(
+                    newly_listed and report.status == SignalReport.Status.READY and report.inbox_notified_at is None
+                ),
             )
 
     try:
@@ -1177,6 +1209,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 capture_signal_report_daily_limit_paused(
                     team, report_id=db_result.report_id, stage="promotion", gate=daily_gate
                 )
+
+        if db_result.needs_inbox_notification:
+            await _start_inbox_notification(input.team_id, db_result.report_id)
 
         if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)

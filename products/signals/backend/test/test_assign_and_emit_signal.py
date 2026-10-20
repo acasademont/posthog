@@ -67,8 +67,10 @@ async def ateam(aorganization):
 def patch_side_effects():
     """Mock only the external side effects (Kafka, analytics, ClickHouse). The Postgres state
     machine is the SUT and is exercised against a real DB."""
+    temporal_client = AsyncMock()
     with (
-        patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=AsyncMock())) as connect_mock,
+        patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=temporal_client)),
+        patch(f"{GROUPING_MODULE_PATH}.async_connect", new=AsyncMock(return_value=temporal_client)),
         patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as emit_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
@@ -77,7 +79,7 @@ def patch_side_effects():
             "emit": emit_mock,
             "capture": capture_mock,
             "soft_delete": soft_delete_mock,
-            "temporal": connect_mock.return_value,
+            "temporal": temporal_client,
         }
 
 
@@ -1434,3 +1436,32 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
             assert str(report.pending_triggering_signal_id) == next_driver
         else:
             assert str(report.pending_triggering_signal_id) == next_driver
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "existing_listed,already_notified,expect_notification",
+    [(False, False, True), (True, False, False), (False, True, False)],
+    ids=["newly_listed", "already_listed", "already_notified"],
+)
+async def test_listing_a_ready_report_starts_its_inbox_notification(
+    ateam, patch_side_effects, existing_listed, already_notified, expect_notification
+):
+    run = await database_sync_to_async(_create_scout_run)(ateam, inbox=True)
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=5.0,
+        signal_count=50,
+        signals_researched=50,
+        listed_in_inbox=existing_listed,
+        inbox_notified_at=timezone.now() if already_notified else None,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), source_product="signals_scout")
+    input_.extra = {"scout_run_id": str(run.id)}
+
+    await assign_and_emit_signal_activity(input_)
+
+    started_ids = [call.kwargs.get("id") for call in patch_side_effects["temporal"].start_workflow.await_args_list]
+    assert (f"signals-inbox-notify:{ateam.id}:{report.id}" in started_ids) is expect_notification
