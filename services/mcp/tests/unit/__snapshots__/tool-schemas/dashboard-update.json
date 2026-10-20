@@ -1320,6 +1320,652 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "query": {
+                                                "description": "Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query.",
+                                                "properties": {
+                                                    "clauses": {
+                                                        "description": "Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.",
+                                                        "items": {
+                                                            "properties": {
+                                                                "aggregation": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "enum": [
+                                                                                "sum",
+                                                                                "avg",
+                                                                                "count",
+                                                                                "min",
+                                                                                "max",
+                                                                                "quantile",
+                                                                                "rate",
+                                                                                "increase",
+                                                                                "histogram_quantile"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Omit to get one line per series (at most 100), without combining them"
+                                                                },
+                                                                "filters": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "items": {
+                                                                                "properties": {
+                                                                                    "key": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "op": {
+                                                                                        "enum": [
+                                                                                            "eq",
+                                                                                            "neq",
+                                                                                            "regex",
+                                                                                            "not_regex"
+                                                                                        ],
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "scope": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "enum": [
+                                                                                                    "resource",
+                                                                                                    "attribute",
+                                                                                                    "auto"
+                                                                                                ],
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "value": {
+                                                                                        "type": "string"
+                                                                                    }
+                                                                                },
+                                                                                "required": ["key", "op", "value"],
+                                                                                "type": "object"
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "groupBy": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "items": {
+                                                                                "properties": {
+                                                                                    "key": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "scope": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "enum": [
+                                                                                                    "resource",
+                                                                                                    "attribute",
+                                                                                                    "auto"
+                                                                                                ],
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ]
+                                                                                    }
+                                                                                },
+                                                                                "required": ["key"],
+                                                                                "type": "object"
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "metricName": {
+                                                                    "type": "string"
+                                                                },
+                                                                "metricType": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "enum": [
+                                                                                "gauge",
+                                                                                "sum",
+                                                                                "histogram",
+                                                                                "exponential_histogram",
+                                                                                "summary"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series."
+                                                                },
+                                                                "name": {
+                                                                    "description": "Alias a formula refers to (e.g. \"a\"); must be unique within the query",
+                                                                    "type": "string"
+                                                                },
+                                                                "quantile": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations"
+                                                                },
+                                                                "rangeFunction": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "enum": ["rate", "increase"],
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Applied to each series before `aggregation`, like `rate()` in PromQL"
+                                                                }
+                                                            },
+                                                            "required": ["metricName", "name"],
+                                                            "type": "object"
+                                                        },
+                                                        "maxItems": 10,
+                                                        "type": "array"
+                                                    },
+                                                    "dateRange": {
+                                                        "anyOf": [
+                                                            {
+                                                                "properties": {
+                                                                    "date_from": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year)."
+                                                                    },
+                                                                    "date_to": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set."
+                                                                    },
+                                                                    "daysOfWeek": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "items": {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "const": 1,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 2,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 3,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 4,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 5,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 6,
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "const": 7,
+                                                                                            "type": "number"
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
+                                                                    },
+                                                                    "excludeIncompletePeriods": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": false,
+                                                                        "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries."
+                                                                    },
+                                                                    "explicitDate": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": false,
+                                                                        "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period."
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Defaults to the last 24 hours when omitted; dashboard date filters override it"
+                                                    },
+                                                    "display": {
+                                                        "anyOf": [
+                                                            {
+                                                                "properties": {
+                                                                    "goalLines": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "items": {
+                                                                                    "properties": {
+                                                                                        "borderColor": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ]
+                                                                                        },
+                                                                                        "calculation": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "enum": [
+                                                                                                        "fixed",
+                                                                                                        "mean",
+                                                                                                        "median",
+                                                                                                        "min",
+                                                                                                        "max"
+                                                                                                    ],
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ],
+                                                                                            "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value."
+                                                                                        },
+                                                                                        "displayIfCrossed": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "type": "boolean"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ]
+                                                                                        },
+                                                                                        "displayLabel": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "type": "boolean"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ]
+                                                                                        },
+                                                                                        "label": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "position": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "enum": [
+                                                                                                        "start",
+                                                                                                        "end"
+                                                                                                    ],
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ]
+                                                                                        },
+                                                                                        "scope": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "enum": [
+                                                                                                        "all",
+                                                                                                        "series"
+                                                                                                    ],
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ],
+                                                                                            "description": "SQL chart calculations use the primary axis, across all series or separately per series."
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "number"
+                                                                                        }
+                                                                                    },
+                                                                                    "required": ["label", "value"],
+                                                                                    "type": "object"
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "legendCalcs": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "items": {
+                                                                                    "enum": [
+                                                                                        "last",
+                                                                                        "mean",
+                                                                                        "min",
+                                                                                        "max",
+                                                                                        "sum",
+                                                                                        "delta"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs."
+                                                                    },
+                                                                    "nullMode": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "enum": ["gap", "zero", "connect"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": "gap",
+                                                                        "description": "How a null bucket renders on a time-series chart."
+                                                                    },
+                                                                    "reduce": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "enum": [
+                                                                                    "last",
+                                                                                    "mean",
+                                                                                    "min",
+                                                                                    "max",
+                                                                                    "sum",
+                                                                                    "delta"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": "last",
+                                                                        "description": "How scalar panels and legend calcs collapse a series to one number."
+                                                                    },
+                                                                    "statSummary": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "enum": ["latest", "average", "total"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": "latest",
+                                                                        "description": "`stat` display only: which summary the headline value shows."
+                                                                    },
+                                                                    "thresholds": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "items": {
+                                                                                    "properties": {
+                                                                                        "color": {
+                                                                                            "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                                                                                            "type": "number"
+                                                                                        }
+                                                                                    },
+                                                                                    "required": ["color", "value"],
+                                                                                    "type": "object"
+                                                                                },
+                                                                                "type": "array"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter."
+                                                                    },
+                                                                    "type": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "enum": [
+                                                                                    "line",
+                                                                                    "area",
+                                                                                    "bar",
+                                                                                    "stat",
+                                                                                    "gauge",
+                                                                                    "bargauge",
+                                                                                    "table",
+                                                                                    "heatmap"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "default": "line"
+                                                                    },
+                                                                    "unit": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit."
+                                                                    },
+                                                                    "yAxis": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "properties": {
+                                                                                    "max": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ],
+                                                                                        "description": "Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot."
+                                                                                    },
+                                                                                    "min": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ],
+                                                                                        "description": "Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on."
+                                                                                    },
+                                                                                    "scale": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "enum": [
+                                                                                                    "linear",
+                                                                                                    "log"
+                                                                                                ],
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ],
+                                                                                        "default": "linear"
+                                                                                    },
+                                                                                    "startAtZero": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "null"
+                                                                                            }
+                                                                                        ],
+                                                                                        "default": true,
+                                                                                        "description": "When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero."
+                                                                                    }
+                                                                                },
+                                                                                "type": "object"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ]
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Chart presentation. A node without it renders as a line chart."
+                                                    },
+                                                    "formula": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Arithmetic over clause aliases (e.g. \"a / b\"); when set, only the formula series are returned"
+                                                    },
+                                                    "interval": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets."
+                                                    },
+                                                    "kind": {
+                                                        "const": "MetricsQuery",
+                                                        "default": "MetricsQuery",
+                                                        "type": "string"
+                                                    },
+                                                    "language": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": ["builder", "promql", "sql"],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "How the query is written; the builder when unset."
+                                                    },
+                                                    "promql": {
+                                                        "anyOf": [
+                                                            {
+                                                                "maxLength": 10000,
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "PromQL expression, run as a range query. Used when `language` is `promql`."
+                                                    },
+                                                    "sql": {
+                                                        "anyOf": [
+                                                            {
+                                                                "maxLength": 10000,
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label."
+                                                    },
+                                                    "version": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "version of the node, used for schema migrations"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -1345,7 +1991,7 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `metrics` - metrics\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
                                     "canvas_app",
@@ -1354,6 +2000,7 @@
                                     "experiment_results",
                                     "experiments_list",
                                     "logs_list",
+                                    "metrics",
                                     "notebook_widget",
                                     "session_replay_list",
                                     "survey_results"
