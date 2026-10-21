@@ -10945,6 +10945,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "replay-core-v4-node"
+version = "0.0.1"
+dependencies = [
+ "neon",
+ "replay-core-v4",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.11.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
