@@ -1,6 +1,6 @@
 import { teamMonthKeyExpiresAtMs } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
-import { explicitFreshnessLifetimeMs } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
 
+import { explicitFreshnessLifetimeMs } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
 import { parseV4UrlRef } from './v4-url-ref'
 
