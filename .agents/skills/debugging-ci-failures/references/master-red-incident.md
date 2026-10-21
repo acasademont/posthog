@@ -64,7 +64,7 @@ Depot posts these checks from more than one GitHub app, so do not filter them by
 
 ```bash
 gh api "repos/PostHog/posthog/commits/<sha>/check-runs?filter=all&per_page=100" --paginate \
-  --jq '.check_runs[] | select((.details_url // "") | contains("/workflows/<workflow-id>")) | select(.conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
+  --jq '.check_runs[] | select(((.details_url // "") | contains("/workflows/<workflow-id>")) and .conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
 ```
 
 The logs are in the warehouse once it has synced Depot, which can trail the run by hours.
@@ -81,7 +81,7 @@ It returns failed jobs only, so a job that Depot cancelled at its timeout is not
 The failed gate job prints a `Failing backend & product tests` table.
 
 This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first.
-GraphQL filters check suites only by app, so it reads the suites of all three apps that post Depot checks: Depot Checks, Depot Checks 2, and Depot Code Access.
+GraphQL filters check suites only by app, so the query reads every app in the `depot-ci` skill's [Which app posts a Depot check](../../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check) table. Keep the two in step.
 
 ```bash
 gh api graphql -f query='fragment gate on CheckSuiteConnection{nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}} {repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checks:checkSuites(first:5,filterBy:{appId:4964980}){...gate} checks2:checkSuites(first:5,filterBy:{appId:4968192}){...gate} codeAccess:checkSuites(first:5,filterBy:{appId:219785}){...gate}}}}}}}}' \
