@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 from asgiref.sync import async_to_sync
 from celery import shared_task
@@ -11,6 +12,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.celery_queues import CeleryQueue
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
@@ -25,6 +27,10 @@ from products.signals.backend.temporal.types import SignalReportSummaryWorkflowI
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 RECOVERY_BATCH_SIZE = 25
+
+
+def implementation_blocked_reports() -> Q:
+    return Q(status=SignalReport.Status.READY, implementation_blocked_reason__isnull=False)
 
 
 async def start_recovered_report(team_id: int, report_id: str) -> None:
@@ -45,7 +51,7 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
 @shared_task(queue=CeleryQueue.DEFAULT.value, ignore_result=True, soft_time_limit=240, time_limit=300)
 @with_team_scope()
 def resume_github_blocked_reports(team_id: int, after_report_id: str | None = None) -> None:
-    reports = SignalReport.objects.filter(github_blocked_reports(), team_id=team_id)
+    reports = SignalReport.objects.filter(github_blocked_reports() | implementation_blocked_reports(), team_id=team_id)
     if after_report_id:
         reports = reports.filter(id__gt=after_report_id)
     if not reports.exists():
@@ -63,7 +69,7 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
         with transaction.atomic():
             report = (
                 SignalReport.objects.select_for_update()
-                .filter(github_blocked_reports(), team_id=team_id, id=report_id)
+                .filter(github_blocked_reports() | implementation_blocked_reports(), team_id=team_id, id=report_id)
                 .first()
             )
             if report is None:
@@ -73,7 +79,16 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
                 fields.extend(report.transition_to(SignalReport.Status.CANDIDATE))
                 report.research_blocked_reason = GitHubReadinessStatus.NOT_CONNECTED
                 report.save(update_fields=[*set(fields), "research_blocked_reason"])
-        async_to_sync(start_recovered_report)(team_id, str(report_id))
+        if report.status == SignalReport.Status.READY:
+            from products.signals.backend.auto_start import (  # noqa: PLC0415 - breaks the recovery/autostart cycle
+                maybe_autostart_from_report_artefacts,
+            )
+
+            async_to_sync(maybe_autostart_from_report_artefacts)(
+                team_id=team_id, report_id=str(report_id), ch_user=ClickHouseUser.SIGNALS
+            )
+        else:
+            async_to_sync(start_recovered_report)(team_id, str(report_id))
     if len(report_ids) == RECOVERY_BATCH_SIZE:
         resume_github_blocked_reports.apply_async(args=[team_id, str(report_ids[-1])], countdown=60)
 
@@ -83,8 +98,8 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
 def sweep_github_blocked_reports(after_team_id: int = 0) -> None:
     team_ids = list(
         SignalReport.objects.filter(
-            research_blocked_reason__isnull=False,
-            status=SignalReport.Status.CANDIDATE,
+            Q(research_blocked_reason__isnull=False, status=SignalReport.Status.CANDIDATE)
+            | implementation_blocked_reports(),
             team_id__gt=after_team_id,
         )
         .order_by("team_id")
