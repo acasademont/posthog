@@ -26,11 +26,17 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
+    from redis.lock import Lock
 
 logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+
+SCAN_LOCK_KEY = "posthog:decide_analytics:scan_lock"
+SCAN_CURSOR_KEY = "posthog:decide_analytics:scan_cursor"
+SCAN_LOCK_TIMEOUT_SECONDS = 5 * 60
+SCAN_CHECKPOINT_TEAMS = 2000
 
 # SDK library names must match the Rust Library::as_str() values in
 # rust/feature-flags/src/handler/types.rs
@@ -184,8 +190,30 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
+    client = get_client()
+    try:
+        with client.lock(SCAN_LOCK_KEY, timeout=SCAN_LOCK_TIMEOUT_SECONDS, blocking=False) as scan_lock:
+            _scan_teams(ph_client, client, scan_lock)
+    except redis.exceptions.LockError:
+        # Another run holds the scan, or this run lost the lock after a stall.
+        return
+
+
+def _scan_teams(ph_client: "Posthog", client: redis.Redis, scan_lock: "Lock") -> None:
+    # A full scan can outlast the schedule and the worker shutdown grace period, so it resumes, not restarts.
+    start_after = int(client.get(SCAN_CURSOR_KEY) or 0)
+    teams = (
+        Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .filter(id__gt=start_after)
+        .order_by("id")
+        .only("id", "uuid")
+    )
+    for scanned, team in enumerate(teams, start=1):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
+        if scanned % SCAN_CHECKPOINT_TEAMS == 0:
+            scan_lock.extend(SCAN_LOCK_TIMEOUT_SECONDS, replace_ttl=True)
+            client.set(SCAN_CURSOR_KEY, team.id)
+    client.delete(SCAN_CURSOR_KEY)
 
 
 def _capture_team_usage_for_request_type(

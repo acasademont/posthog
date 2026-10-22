@@ -33,6 +33,8 @@ from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
+    SCAN_CURSOR_KEY,
+    SCAN_LOCK_KEY,
     SDK_LIBRARIES,
     _enriched_flag_key_expr_sql,
     _extract_sdk_breakdown_from_redis,
@@ -42,6 +44,7 @@ from products.feature_flags.backend.flag_analytics import (
     find_flags_with_enriched_analytics,
     get_cached_evaluations_7d_by_team,
     get_evaluations_7d_by_team,
+    get_team_request_key,
     get_team_request_library_key,
     increment_request_count,
 )
@@ -349,6 +352,44 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                     },
                 )
                 assert mock_capture.capture.call_count == 2
+
+    def _seed_decide_usage(self, team: Team) -> None:
+        redis.get_client().hset(get_team_request_key(team.id, FlagRequestType.DECIDE), mapping={"100": 4, "101": 1})
+
+    def _exported_team_ids(self, mock_capture: MagicMock) -> list[int]:
+        exported = [call.kwargs["properties"]["team_id"] for call in mock_capture.capture.call_args_list]
+        mock_capture.reset_mock(side_effect=True)
+        return exported
+
+    @patch("products.feature_flags.backend.flag_analytics.SCAN_CHECKPOINT_TEAMS", 1)
+    def test_stopped_scan_resumes_after_the_last_saved_team_and_restarts_once_complete(self):
+        first, second, third = [self.team, *(Team.objects.create(organization=self.organization) for _ in range(2))]
+        mock_capture = MagicMock()
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"):
+            for team in (first, second, third):
+                self._seed_decide_usage(team)
+            mock_capture.capture.side_effect = [None, SystemExit()]
+            with self.assertRaises(SystemExit):
+                capture_usage_for_all_teams(mock_capture)
+            assert self._exported_team_ids(mock_capture) == [first.id, second.id]
+
+            for team in (first, second, third):
+                self._seed_decide_usage(team)
+            capture_usage_for_all_teams(mock_capture)
+            assert self._exported_team_ids(mock_capture) == [second.id, third.id]
+
+            capture_usage_for_all_teams(mock_capture)
+            assert self._exported_team_ids(mock_capture) == [first.id]
+
+    def test_run_leaves_the_scan_to_the_run_that_holds_it(self):
+        mock_capture = MagicMock()
+        client = redis.get_client()
+        self._seed_decide_usage(self.team)
+        client.set(SCAN_CURSOR_KEY, 0)
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"), client.lock(SCAN_LOCK_KEY, timeout=60):
+            capture_usage_for_all_teams(mock_capture)
+        mock_capture.capture.assert_not_called()
+        assert client.get(SCAN_CURSOR_KEY) == b"0"
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."
