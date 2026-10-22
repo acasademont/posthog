@@ -4,6 +4,7 @@ from products.signals.backend.activity_summary.tick import (
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,
 )
+from products.signals.backend.github_readiness import check_report_github_readiness_activity
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -188,6 +189,7 @@ ACTIVITIES = [
     read_signals_from_s3_activity,
     check_report_quota_gate_activity,
     mark_report_in_progress_activity,
+    check_report_github_readiness_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,
