@@ -1577,10 +1577,13 @@ def _slack_attachment_props(event: dict[str, Any]) -> dict[str, Any]:
     """
     files = parse_slack_file_refs(event.get("files"))
     image_count = sum(1 for file in files if file.mimetype.startswith("image/"))
+    audio_count = sum(1 for file in files if file.mimetype.startswith("audio/"))
     return {
         "slack_attachment_count": len(files),
         "slack_image_count": image_count,
         "slack_has_image": image_count > 0,
+        "slack_audio_count": audio_count,
+        "slack_has_audio": audio_count > 0,
         "slack_attachment_mimetypes": sorted({file.mimetype for file in files if file.mimetype}),
     }
 
@@ -2312,11 +2315,14 @@ def _route_assistant_event(
     fields = _assistant_event_fields(event)
 
     # Only first-party human DMs proceed — ignore channel messages, bot echoes, and edits.
+    # A voice message or other file sent alone arrives with empty text and the ``file_share``
+    # subtype, so that one subtype is admitted when the event carries files.
+    is_file_share = event.get("subtype") == "file_share" and _thread_message_event_has_files(event)
     if event_type == "message" and (
         event.get("channel_type") != "im"
         or event.get("bot_id")
-        or event.get("subtype")
-        or not str(event.get("text") or "").strip()
+        or (event.get("subtype") and not is_file_share)
+        or not (str(event.get("text") or "").strip() or is_file_share)
     ):
         return ROUTE_HANDLED_LOCALLY
     if not (fields.slack_user_id and fields.dm_channel_id and fields.thread_ts):

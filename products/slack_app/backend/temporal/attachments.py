@@ -21,6 +21,10 @@ MAX_SLACK_ATTACHMENTS_PER_MESSAGE = 15
 # the one the thread opened with.
 MAX_SLACK_ATTACHMENTS_PER_THREAD = 15
 MAX_SLACK_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# Lower than the general cap because the agent transcribes audio on the sandbox CPU, and
+# the transcription time grows with the recording length. A voice message is far smaller
+# than this, so the cap only stops long recordings that the transcription would reject.
+MAX_SLACK_AUDIO_ATTACHMENT_BYTES = 5 * 1024 * 1024
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 15
 MAX_SLACK_DOWNLOAD_REDIRECTS = 5
 
@@ -36,13 +40,40 @@ SLACK_ATTACHMENT_BATCH_SECONDS = 240
 
 _MAX_ATTACHMENT_NAME_CHARS = 120
 
+SLACK_AUDIO_TRANSCRIPTION_SKILL = "transcribing-slack-audio"
+
 _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
 # Allowlist, not denylist: a wrongly blocked file produces a visible "skipped
 # because…" note the user can act on, while a wrongly allowed file is silent.
 # The realistic Slack-attachment set is small — images, PDFs, and plain-text
 # data formats. Anything executable, scripted, or macro-capable stays out.
-_ALLOWED_EXTENSIONS = frozenset(
+# Slack voice messages and common audio uploads. The agent transcribes them locally with
+# the transcribing-slack-audio skill, so this set stays in line with what ffmpeg decodes.
+_AUDIO_EXTENSIONS = frozenset({".m4a", ".mp3", ".oga", ".ogg", ".opus", ".wav", ".webm"})
+_AUDIO_MIME_TYPES = frozenset(
+    {
+        "audio/m4a",
+        "audio/mp3",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/opus",
+        "audio/vnd.wave",
+        "audio/wav",
+        "audio/wave",
+        "audio/webm",
+        "audio/x-m4a",
+        "audio/x-wav",
+    }
+)
+_AUDIO_SLACK_FILETYPES = frozenset({"m4a", "mp3", "ogg", "opus", "wav", "webm"})
+# Slack can store a voice message as an MP4 container with an audio mimetype. The ".mp4"
+# name and the "mp4" filetype are accepted only together with that audio mimetype, so an
+# MP4 video stays out.
+_AUDIO_ONLY_MP4_MIME_TYPES = frozenset({"audio/m4a", "audio/mp4", "audio/x-m4a"})
+
+_ALLOWED_EXTENSIONS = _AUDIO_EXTENSIONS | frozenset(
     {
         ".bmp",
         ".csv",
@@ -62,7 +93,7 @@ _ALLOWED_EXTENSIONS = frozenset(
         ".yml",
     }
 )
-_ALLOWED_MIME_TYPES = frozenset(
+_ALLOWED_MIME_TYPES = _AUDIO_MIME_TYPES | frozenset(
     {
         "application/json",
         "application/pdf",
@@ -80,7 +111,7 @@ _ALLOWED_MIME_TYPES = frozenset(
         "text/yaml",
     }
 )
-_ALLOWED_SLACK_FILETYPES = frozenset(
+_ALLOWED_SLACK_FILETYPES = _AUDIO_SLACK_FILETYPES | frozenset(
     {
         "bmp",
         "csv",
@@ -99,7 +130,8 @@ _ALLOWED_SLACK_FILETYPES = frozenset(
 )
 
 _ATTACHMENT_TYPE_SKIP_REASON = (
-    "only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported"
+    "only image, PDF, audio (M4A, MP3, OGG, WAV, WebM), and plain-text attachments "
+    "(logs, markdown, CSV, JSON, YAML) are supported"
 )
 
 _SLOW_BATCH_SKIP_MESSAGE = (
@@ -209,6 +241,10 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
+def _is_audio_only_mp4(extension: str, content_type: str, filetype: str) -> bool:
+    return content_type in _AUDIO_ONLY_MP4_MIME_TYPES and (extension == ".mp4" or filetype == "mp4")
+
+
 def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
     """Every signal present must be allowed, and at least one positive signal must exist.
 
@@ -219,9 +255,10 @@ def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: str) 
     """
     extension = os.path.splitext(filename.lower())[1]
     filetype = slack_filetype.lower()
-    extension_allowed = extension in _ALLOWED_EXTENSIONS
+    audio_only_mp4 = _is_audio_only_mp4(extension, content_type, filetype)
+    extension_allowed = extension in _ALLOWED_EXTENSIONS or (audio_only_mp4 and extension == ".mp4")
     mime_allowed = content_type in _ALLOWED_MIME_TYPES
-    filetype_allowed = filetype in _ALLOWED_SLACK_FILETYPES
+    filetype_allowed = filetype in _ALLOWED_SLACK_FILETYPES or (audio_only_mp4 and filetype == "mp4")
     if extension and not extension_allowed:
         return False
     if content_type and content_type != "application/octet-stream" and not mime_allowed:
@@ -229,6 +266,27 @@ def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: str) 
     if filetype and not filetype_allowed:
         return False
     return extension_allowed or mime_allowed or filetype_allowed
+
+
+def _is_audio_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
+    """Whether an attachment that passed `_is_allowed_metadata` is audio.
+
+    Call it only after that check, which already rejects a contradiction such as an audio
+    extension with an image mimetype. Any one audio signal is then enough.
+    """
+    extension = os.path.splitext(filename.lower())[1]
+    return (
+        extension in _AUDIO_EXTENSIONS
+        or content_type in _AUDIO_MIME_TYPES
+        or slack_filetype.lower() in _AUDIO_SLACK_FILETYPES
+    )
+
+
+def is_audio_artifact(artifact: dict[str, Any]) -> bool:
+    """Whether an uploaded attachment is audio, judged from its manifest name and content type."""
+    return _is_audio_metadata(
+        str(artifact.get("name") or ""), _normalize_content_type(artifact.get("content_type")), ""
+    )
 
 
 def _is_dangerous_payload(payload: bytes) -> bool:
@@ -242,9 +300,11 @@ def _source_url(file: SlackFileRef) -> str:
     return file.url_private_download or file.url_private
 
 
-def _download_slack_file(url: str, bot_token: str, budget: SlackAttachmentBudget) -> bytes | None:
+def _download_slack_file(
+    url: str, bot_token: str, budget: SlackAttachmentBudget, *, max_file_bytes: int = MAX_SLACK_ATTACHMENT_BYTES
+) -> bytes | None:
     next_url = url
-    max_bytes = min(MAX_SLACK_ATTACHMENT_BYTES, budget.remaining_bytes)
+    max_bytes = min(max_file_bytes, budget.remaining_bytes)
     for _ in range(MAX_SLACK_DOWNLOAD_REDIRECTS + 1):
         if budget.is_expired():
             logger.warning("slack_attachment_download_deadline_reached")
@@ -440,8 +500,12 @@ def _prepare_files(
             skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
             continue
 
-        if file.size is not None and file.size > MAX_SLACK_ATTACHMENT_BYTES:
-            skipped_messages.append(f"{filename} was skipped because it exceeds the 10 MB Slack attachment limit.")
+        is_audio = _is_audio_metadata(filename, content_type, file.filetype)
+        max_file_bytes = MAX_SLACK_AUDIO_ATTACHMENT_BYTES if is_audio else MAX_SLACK_ATTACHMENT_BYTES
+        if file.size is not None and file.size > max_file_bytes:
+            limit_mb = max_file_bytes // (1024 * 1024)
+            kind = "audio attachment" if is_audio else "attachment"
+            skipped_messages.append(f"{filename} was skipped because it exceeds the {limit_mb} MB Slack {kind} limit.")
             continue
         # Slack reports the size on nearly every upload, so stopping here reports the real
         # reason rather than starting a download the byte ceiling would abort part-way.
@@ -458,7 +522,7 @@ def _prepare_files(
             continue
 
         try:
-            payload = _download_slack_file(url, bot_token, budget)
+            payload = _download_slack_file(url, bot_token, budget, max_file_bytes=max_file_bytes)
         except Exception:
             logger.exception("slack_attachment_download_exception", file_id=file.id)
             payload = None
@@ -505,6 +569,19 @@ def build_slack_attachment_prompt_text(
     if uploaded_artifacts:
         names = ", ".join(str(artifact.get("name") or "attachment") for artifact in uploaded_artifacts)
         pieces.append(f"Slack attachment(s) available to the agent as task files: {names}.")
+
+    # Only uploaded files get the hint. A skipped audio file is not in the workspace, so a
+    # hint for it would send the agent to transcribe a file it cannot open.
+    audio_names = [
+        str(artifact.get("name") or "attachment") for artifact in uploaded_artifacts if is_audio_artifact(artifact)
+    ]
+    if audio_names:
+        pieces.append(
+            f"Slack audio attachment(s), probably voice messages: {', '.join(audio_names)}. "
+            f"Use the {SLACK_AUDIO_TRANSCRIPTION_SKILL} skill to transcribe each one locally, "
+            "and treat the transcript as the user's message. If a transcription fails, tell the "
+            "user why and ask them to type the request instead."
+        )
 
     if skipped_messages:
         skipped = "\n".join(f"- {msg}" for msg in skipped_messages)

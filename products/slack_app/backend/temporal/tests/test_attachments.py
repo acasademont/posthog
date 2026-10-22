@@ -1,4 +1,5 @@
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,8 @@ from products.slack_app.backend.temporal.attachments import (
     _LARGE_BATCH_SKIP_MESSAGE,
     _SLOW_BATCH_SKIP_MESSAGE,
     MAX_SLACK_ATTACHMENTS_PER_THREAD,
+    MAX_SLACK_AUDIO_ATTACHMENT_BYTES,
+    SLACK_AUDIO_TRANSCRIPTION_SKILL,
     SlackAttachmentBudget,
     attachment_display_name,
     build_slack_attachment_prompt_text,
@@ -20,7 +23,8 @@ from products.slack_app.backend.temporal.attachments import (
 )
 
 _TYPE_SKIP_SUFFIX = (
-    "was skipped because only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported."
+    "was skipped because only image, PDF, audio (M4A, MP3, OGG, WAV, WebM), and plain-text attachments "
+    "(logs, markdown, CSV, JSON, YAML) are supported."
 )
 
 
@@ -83,6 +87,9 @@ class TestSlackAttachments(SimpleTestCase):
             ("report.docm", "application/vnd.ms-word.document.macroEnabled.12", ""),
             ("page.html", "text/html", "html"),
             ("diagram.svg", "image/svg+xml", ""),
+            # An MP4 container is admitted only with an audio mimetype, never as video.
+            ("screen-recording.mp4", "video/mp4", "mp4"),
+            ("clip.webm", "video/webm", "webm"),
             # Contradiction: allowed extension, disallowed mimetype — fail closed.
             ("notes.txt", "application/x-sh", ""),
         ]
@@ -99,6 +106,55 @@ class TestSlackAttachments(SimpleTestCase):
         download.assert_not_called()
         assert prepared.artifacts == []
         assert prepared.skipped_messages == [f"{name} {_TYPE_SKIP_SUFFIX}"]
+
+    @parameterized.expand(
+        [
+            ("audio_message.m4a", "audio/mp4", "m4a"),
+            ("audio_message.mp4", "audio/mp4", "mp4"),
+            ("memo.mp3", "audio/mpeg", "mp3"),
+            ("voice.ogg", "audio/ogg", "ogg"),
+            ("voice.opus", "audio/opus", ""),
+            ("recording.wav", "audio/wav", "wav"),
+            ("audio_message.webm", "audio/webm", "webm"),
+            ("unlabeled.m4a", "application/octet-stream", ""),
+        ]
+    )
+    def test_accepts_audio_attachment(self, name: str, mimetype: str, filetype: str) -> None:
+        with patch(
+            "products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"\x00audio"
+        ) as download:
+            prepared = prepare_slack_file_artifacts(
+                [_slack_file(name=name, mimetype=mimetype, filetype=filetype)], "xoxb-token"
+            )
+
+        assert prepared.skipped_messages == []
+        assert [artifact["name"] for artifact in prepared.artifacts] == [name]
+        assert download.call_args.kwargs["max_file_bytes"] == MAX_SLACK_AUDIO_ATTACHMENT_BYTES
+
+    @parameterized.expand(
+        [
+            ("audio_over_audio_cap", "memo.m4a", "audio/mp4", "m4a", MAX_SLACK_AUDIO_ATTACHMENT_BYTES + 1, True),
+            ("image_same_size_allowed", "shot.png", "image/png", "png", MAX_SLACK_AUDIO_ATTACHMENT_BYTES + 1, False),
+        ]
+    )
+    def test_audio_has_lower_per_file_cap(
+        self, _name: str, name: str, mimetype: str, filetype: str, size: int, skipped: bool
+    ) -> None:
+        with patch(
+            "products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"x"
+        ) as download:
+            prepared = prepare_slack_file_artifacts(
+                [_slack_file(name=name, mimetype=mimetype, filetype=filetype, size=size)], "xoxb-token"
+            )
+
+        if skipped:
+            download.assert_not_called()
+            assert prepared.artifacts == []
+            assert prepared.skipped_messages == [
+                f"{name} was skipped because it exceeds the 5 MB Slack audio attachment limit."
+            ]
+        else:
+            assert [artifact["name"] for artifact in prepared.artifacts] == [name]
 
     def test_blocks_script_payload_after_download(self) -> None:
         with patch(
@@ -262,3 +318,34 @@ class TestSlackAttachments(SimpleTestCase):
             "Slack attachment(s) skipped:\n"
             f"- deploy.sh {_TYPE_SKIP_SUFFIX}"
         )
+
+    @parameterized.expand(
+        [
+            ("uploaded_audio_by_mimetype", [{"name": "audio_message.m4a", "content_type": "audio/mp4"}], [], True),
+            (
+                "uploaded_audio_by_extension",
+                [{"name": "memo.ogg", "content_type": "application/octet-stream"}],
+                [],
+                True,
+            ),
+            ("uploaded_non_audio", [{"name": "debug.log", "content_type": "text/plain"}], [], False),
+            (
+                "skipped_audio_only",
+                [],
+                ["memo.m4a was skipped because it exceeds the 5 MB Slack audio attachment limit."],
+                False,
+            ),
+        ]
+    )
+    def test_build_prompt_points_to_transcription_skill_only_for_uploaded_audio(
+        self, _name: str, uploaded: list[dict[str, Any]], skipped: list[str], expects_hint: bool
+    ) -> None:
+        prompt = build_slack_attachment_prompt_text(None, uploaded_artifacts=uploaded, skipped_messages=skipped)
+
+        assert prompt is not None
+        assert (SLACK_AUDIO_TRANSCRIPTION_SKILL in prompt) is expects_hint
+
+    def test_prompt_names_a_skill_that_ships(self) -> None:
+        skills_dir = Path(__file__).resolve().parents[3] / "skills"
+        assert (skills_dir / SLACK_AUDIO_TRANSCRIPTION_SKILL / "SKILL.md").is_file()
+        assert (skills_dir / SLACK_AUDIO_TRANSCRIPTION_SKILL / "scripts" / "transcribe.py").is_file()

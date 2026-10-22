@@ -1719,33 +1719,54 @@ class TestAssistantEvents(TestCase):
             )
         assert _get_assistant_channel_context(self.integration.id, "D001", "111.222") == "C999"
 
-    def test_dm_message_starts_agent(self):
+    @parameterized.expand(
+        [
+            ("text", {"text": "fix the funnel bug"}),
+            (
+                "file_only_voice_message",
+                {
+                    "text": "",
+                    "subtype": "file_share",
+                    "files": [{"id": "F1", "name": "audio_message.m4a", "mimetype": "audio/mp4"}],
+                },
+            ),
+        ]
+    )
+    def test_dm_message_starts_agent(self, _name: str, fields: dict):
         load, resolve, usp, slack = self._patch_resolution(user=self.user)
         start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
         with load, resolve, usp, slack as slack_cls, start as mock_start:
             slack_cls.return_value.missing_scopes.return_value = set()
             self._route(
-                {
-                    "type": "message",
-                    "channel_type": "im",
-                    "channel": "D001",
-                    "user": "U123",
-                    "text": "fix the funnel bug",
-                    "ts": "111.222",
-                }
+                {"type": "message", "channel_type": "im", "channel": "D001", "user": "U123", "ts": "111.222", **fields}
             )
             slack_cls.return_value.client.assistant_threads_setStatus.assert_not_called()
             mock_start.assert_called_once()
 
-    def test_dm_message_ignores_bot_and_non_im(self):
+    @parameterized.expand(
+        [
+            ("bot", {"channel_type": "im", "bot_id": "B1", "channel": "D001", "text": "hi"}),
+            ("non_im", {"channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi"}),
+            (
+                "file_share_without_files",
+                {"channel_type": "im", "channel": "D001", "user": "U1", "subtype": "file_share"},
+            ),
+            (
+                "edit_with_files",
+                {
+                    "channel_type": "im",
+                    "channel": "D001",
+                    "user": "U1",
+                    "subtype": "message_changed",
+                    "files": [{"id": "F1", "name": "audio_message.m4a", "mimetype": "audio/mp4"}],
+                },
+            ),
+        ]
+    )
+    def test_dm_message_ignores_non_human_dm_content(self, _name: str, fields: dict):
         start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
         with start as mock_start:
-            self._route(
-                {"type": "message", "channel_type": "im", "bot_id": "B1", "channel": "D001", "text": "hi", "ts": "1"}
-            )
-            self._route(
-                {"type": "message", "channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi", "ts": "1"}
-            )
+            self._route({"type": "message", "ts": "1", **fields})
             mock_start.assert_not_called()
 
 
