@@ -15,7 +15,7 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { parseBatch } from './message-parsing'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -181,51 +181,30 @@ export class CdpEventsConsumer<
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                // Parked rather than dropped: a schema we cannot read today is often one a later
-                // version can.
-                const park = (error: string): void =>
-                    this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
-
-                const clickHouseEvent = readMessage(
-                    'Error parsing message',
-                    () => assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent),
-                    park
-                )
-                if (!clickHouseEvent) {
-                    return
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                return {
+                    teamId: clickHouseEvent.team_id,
+                    toGlobals: (team) => {
+                        const globals = convertToHogFunctionInvocationGlobals(
+                            clickHouseEvent,
+                            team,
+                            this.config.SITE_URL
+                        )
+                        // The one place holding both. A failure found later in the pipeline carries
+                        // these globals, and this is how it gets back to the bytes to park.
+                        this.messageByGlobals.set(globals, message)
+                        return globals
+                    },
                 }
-
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
-                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                    this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                    this.deps.teamManager.getTeam(clickHouseEvent.team_id),
-                ])
-
-                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                    return
-                }
-
-                const globals = readMessage(
-                    'Error parsing message',
-                    () => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
-                    park
-                )
-                if (!globals) {
-                    return
-                }
-                // The one place holding both. A failure found later in the pipeline carries
-                // these globals, and this is how it gets back to the bytes to park.
-                this.messageByGlobals.set(globals, message)
-                events.push(globals)
-            })
-        )
-
-        return events
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            // Parked rather than dropped: a schema we cannot read today is often one a later
+            // version can.
+            onError: (message, error) => this.deadLetterService.recordMessageFailure(message, { step: 'parse', error }),
+        })
     }
 
     protected async startQueueProducers(): Promise<void> {
