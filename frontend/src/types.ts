@@ -5773,6 +5773,7 @@ export interface IntegrationType {
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
     installation_status?: IntegrationConfigApi['installation_status']
+    github_readiness?: IntegrationConfigApi['github_readiness']
 }
 
 export interface EmailIntegrationDomainGroupedType {
