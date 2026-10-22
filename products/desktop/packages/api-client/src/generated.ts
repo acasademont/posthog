@@ -6180,7 +6180,7 @@ export namespace Schemas {
      * * `orange` - Orange
      * * `red` - Red
      */
-    export type DashboardTileGroupRailEnum =
+    export type DashboardTileGroupColorEnum =
         | "blue"
         | "purple"
         | "green"
@@ -6190,8 +6190,7 @@ export namespace Schemas {
     export type DashboardTileGroup = Partial<{
         title: string;
         collapsed: boolean;
-        tint: boolean;
-        rail: DashboardTileGroupRailEnum | NullEnum;
+        color: DashboardTileGroupColorEnum | NullEnum;
     }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
