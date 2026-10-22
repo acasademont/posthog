@@ -46,7 +46,7 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { readMessage } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -1273,18 +1273,6 @@ function convertClickhousePersonToWakeGlobals(
             elements_chain: '',
         },
         person,
-    }
-}
-
-// Runs a step that reads only the message. A throw counts as a parse error and makes this return null.
-// The caller then skips the message.
-function readMessage<T>(errorLog: string, read: () => T): T | null {
-    try {
-        return read()
-    } catch (e) {
-        logger.error(errorLog, e)
-        counterParseError.labels({ error: e.message }).inc()
-        return null
     }
 }
 
