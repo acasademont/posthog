@@ -36,7 +36,8 @@ The engines agree everywhere except the empty matrix. Depot posted one check for
 
 - A check run that concludes `skipped` **satisfies** a required status check, and the Trunk merge queue scores it the same way. The repo already depends on this: `Build Docker image` is a required context that concludes `skipped` on most PRs, and they merge.
 - A required context that **no check run ever reports** stays pending and blocks. This is the empty-matrix failure mode above, and it is also what a `paths:` filter does when it silences a whole workflow.
-- A required context is pinned to one app when its ruleset entry carries an `integration_id`, and accepts a check from any app when it carries none (GitHub's UI calls that "Any source"). In this repo's `master` ruleset, every GitHub Actions entry carries `integration_id: 15368`, the `github-actions` app, and `Backend CI on Depot / Django Tests Pass on Depot` carries none. Read them with:
+- A check run that stays `in_progress` blocks, and GitHub keeps every completed check run on its commit. Depot creates a job's own check only when the job resolves, so a new run on an already green commit (a draft marked ready, a reopen) cannot hold the commit pending: the old success stands until the new gate job ends. That is why the required backend context is the gate job's `Backend CI on Depot / Test results` check, posted by the PostHog tests app: a passing draft run does not post it, so the context stays missing until the ready run posts the verdict. A draft shows the check only when its run failed.
+- A required context is pinned to one app when its ruleset entry carries an `integration_id`, and accepts a check from any app when it carries none (GitHub's UI calls that "Any source"). Most entries in this repo's `master` ruleset carry `integration_id: 15368`, the `github-actions` app; the backend entry, `Backend CI on Depot / Test results`, is pinned to the PostHog tests app. Read them with:
 
   ```bash
   gh api repos/PostHog/posthog/rulesets --jq '.[] | select(.name=="master") | .id'
@@ -44,7 +45,7 @@ The engines agree everywhere except the empty matrix. Depot posted one check for
       --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
   ```
 
-  A check run posted by any other app does not satisfy a context pinned to `github-actions`, however exactly the name matches. A required Depot context must stay on "Any source", because Depot posts the same check name from any of three apps.
+  A check run posted by any other app does not satisfy a context pinned to `github-actions`, however exactly the name matches. A required context for a check that Depot posts must stay on "Any source", because Depot posts the same check name from any of three apps.
 
 - Trunk merge queue takes its required list from GitHub branch protection by default, and can override it from the Trunk UI or from `merge.required_statuses` in `.trunk/trunk.yaml`. The trunk.yaml form matches on **name only**, with no app pinning, so a repo that sets both can have Trunk and GitHub disagree about which app's check counts. This repo sets no `merge:` block, so branch protection is the source.
 
@@ -77,7 +78,8 @@ Depot creates a job's check run when it resolves the job, not when it creates th
 ## Reruns
 
 GitHub's Re-run button on a Depot check does nothing. GitHub's [checks guide](https://docs.github.com/en/rest/guides/using-the-rest-api-to-interact-with-checks) says the request goes to the GitHub App that created the check run, and Depot's app does not act on it: measured 2026-10-16, GitHub reported the rerun as requested and Depot started no attempt.
-A `/depot retry` comment on the pull request starts the retry instead. `.depot/workflows/retry-on-comment.yml` runs `depot ci retry --failed` on the pull request's newest run.
+A `/depot retry` comment on the pull request starts the retry instead. `.github/workflows/depot-retry-on-comment.yml` runs `depot ci retry --failed` on the pull request's newest run.
+It runs on GitHub Actions because Depot CI records a run for every comment that reaches an `issue_comment` workflow. A job `if:` that is false still leaves a run with a `skipped` job, and Depot ignores a workflow-level `if:`. Measured 2026-10-21 with push-triggered probe workflows in run `ps_01p74dcdmm`, because a comment trigger runs only from the default branch.
 That command works while other jobs of the workflow still run, and it reruns the jobs downstream of each retried job, so the gate reads the new attempt.
 
 Retrying a failed Depot job created a new check run with the same name and left the failed one behind in the measured 2026-09-17 run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API listed both. GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` when it is present.
