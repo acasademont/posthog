@@ -238,6 +238,9 @@ class TestInboxOnboarding(APIBaseTest):
                 (self.team.id, "scout"),
                 (self.team.id, "recommendations"),
             }
+        elif variant == "test-ui":
+            assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "skipped"}
+            assert {call.args for call in launch.call_args_list} == {(self.team.id, "scout")}
         else:
             launch.assert_not_called()
         assert config.autostart_enabled is automatic_implementation
@@ -325,13 +328,15 @@ class TestInboxOnboarding(APIBaseTest):
             (True, "scout", 200),
             (False, "source", 403),
             (True, "source", 200),
-            (False, "none", 200),
+            (False, "none", 403),
+            (True, "none", 200),
         ]
     )
     def test_child_completion_checks_parent_scout_access(
         self, parent_access: bool, selection: str, expected_status: int
     ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        SignalTeamConfig.objects.create(team=child, onboarding={"variant": "test-ui"})
         SignalSourceConfig.objects.create(
             team=child, source_product="error_tracking", source_type="issue_created", enabled=True
         )
@@ -448,7 +453,7 @@ class TestInboxOnboarding(APIBaseTest):
             scout.refresh_from_db()
             assert scout.enabled
 
-    @parameterized.expand([("expose",), ("reconcile",)])
+    @parameterized.expand([("expose",), ("reconcile",), ("read",)])
     def test_child_scoped_credential_cannot_start_parent_reconciliation(self, action: str) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
@@ -456,15 +461,19 @@ class TestInboxOnboarding(APIBaseTest):
             label="onboarding",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=["task:write"],
+            scopes=["task:write", "signal_scout:read"],
             scoped_teams=[child.id],
         )
         self.client.logout()
-        response = self.client.post(
-            f"/api/projects/{child.id}/signals/onboarding/{action}/",
-            {"variant": "control"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        response = (
+            self.client.get(f"/api/projects/{child.id}/signals/onboarding/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+            if action == "read"
+            else self.client.post(
+                f"/api/projects/{child.id}/signals/onboarding/{action}/",
+                {"variant": "control"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
         )
         assert response.status_code == 403, response.content
 
@@ -624,6 +633,54 @@ class TestInboxOnboarding(APIBaseTest):
 
 
 class TestInboxOnboardingActivation(BaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_no_scout_sandbox_starts_for_an_empty_project(self, first_probe_fails: bool) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        config = SignalTeamConfig.objects.create(
+            team=self.team,
+            onboarding={
+                "variant": "test-ui",
+                "completed_at": timezone.now().isoformat(),
+                "activated_by": self.user.pk,
+                "jobs": {"scout": "pending"},
+            },
+        )
+        with (
+            patch(
+                "products.signals.backend.scout_harness.profile.builders.execute_hogql_query",
+                return_value=MagicMock(results=[]),
+            ),
+            patch(
+                "products.signals.backend.first_report_scout.execute_hogql_query",
+                side_effect=lambda **kwargs: MagicMock(results=[[0, None]] if len(kwargs["query"].select) == 2 else []),
+            ) as probe,
+            patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
+            patch(
+                "posthoganalytics.get_feature_flag_payload",
+                return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
+            ),
+        ):
+            if first_probe_fails:
+                healthy_probe = probe.side_effect
+                probe.side_effect = RuntimeError("Query unavailable")
+                with self.assertRaisesRegex(RuntimeError, "data availability is unknown"):
+                    InboxOnboardingActivation(self.team.id).run("scout", final_attempt=False)
+                config.refresh_from_db()
+                assert config.onboarding is not None
+                assert config.onboarding["jobs"]["scout"] == "pending"
+                probe.side_effect = healthy_probe
+            InboxOnboardingActivation(self.team.id).run("scout")
+        connect.assert_not_called()
+        config.refresh_from_db()
+        assert config.onboarding is not None
+        assert config.onboarding["first_report"]["status"] == "no_data"
+        assert (
+            not SignalScoutConfig.objects.for_team(self.team.id)
+            .filter(skill_name="signals-scout-first-report")
+            .exists()
+        )
+
     @parameterized.expand([("scout", 0), ("scout", 5), ("recommendations", 0), ("recommendations", 5)])
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str, retry_count: int) -> None:
         self.organization.is_ai_data_processing_approved = True
@@ -642,6 +699,14 @@ class TestInboxOnboardingActivation(BaseTest):
         client.start_workflow = AsyncMock()
         with (
             patch("products.signals.backend.onboarding_activation.sync_connect", return_value=client),
+            patch(
+                "products.signals.backend.scout_harness.profile.builders.execute_hogql_query",
+                return_value=MagicMock(results=[["$pageview", 100, 10, 20, 5, timezone.now(), timezone.now()]]),
+            ),
+            patch(
+                "products.signals.backend.first_report_scout.execute_hogql_query",
+                side_effect=lambda **kwargs: MagicMock(results=[[0, None]] if len(kwargs["query"].select) == 2 else []),
+            ),
             patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
             patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True),
             self.captureOnCommitCallbacks(execute=True),

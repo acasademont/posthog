@@ -7,15 +7,20 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.transactional_email import is_transactional_email_configured
 
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_notification import register_first_report_notification
+from products.signals.backend.first_report_scout import first_report_state
+from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.models import (
     AutonomyPriority,
+    SignalFirstReportNotification,
     SignalScoutConfig,
     SignalScoutSuggestionSet,
     SignalSourceConfig,
@@ -25,6 +30,7 @@ from products.signals.backend.models import (
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
+from products.signals.backend.report_content_gates import team_first_report_email_enabled
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 
@@ -48,6 +54,10 @@ def onboarding_priorities() -> Sequence[tuple[str, str | Promise]]:
     return AutonomyPriority.choices
 
 
+def onboarding_first_report_statuses() -> Sequence[tuple[str, str | Promise]]:
+    return FirstReportStatus.choices
+
+
 def can_create_onboarding_scout(user: User, team: Team) -> bool:
     return can_create_scout(user, team)
 
@@ -61,7 +71,12 @@ class InboxOnboarding:
 
     def _state(self, config: SignalTeamConfig) -> dict[str, Any]:
         state = config.onboarding or {}
-        if any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts")):
+        if (
+            self.team.parent_team_id
+            or state.get("first_report")
+            or state.get("jobs", {}).get("scout")
+            or any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts"))
+        ):
             self.authorize_scouts(False)
         jobs = dict(state.get("jobs", {}))
         if (
@@ -80,6 +95,18 @@ class InboxOnboarding:
             "completed_at": state.get("completed_at"),
             "variant": state.get("variant"),
             **({"jobs": jobs} if "jobs" in state else {}),
+            "first_report": first_report_state(self.team.parent_team_id or self.team_id)
+            or ({"status": "pending"} if jobs.get("scout") == "pending" else None),
+            "first_report_notification_email": (
+                self.user.email
+                if is_cloud()
+                and is_transactional_email_configured()
+                and team_first_report_email_enabled(self.team_id)
+                and SignalFirstReportNotification.objects.for_team(self.team_id)
+                .filter(activated_by=self.user, queued_at__isnull=True, cancelled_at__isnull=True)
+                .exists()
+                else None
+            ),
         }
 
     def state(self) -> dict[str, Any]:
@@ -125,8 +152,9 @@ class InboxOnboarding:
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
-        if (config.onboarding or {}).get("variant") == "test-github":
+        if (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
             self.authorize_scouts(True)
+        if (config.onboarding or {}).get("variant") == "test-github":
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
@@ -199,8 +227,10 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
+                if state.get("variant") in ("test-github", "test-ui"):
+                    config.onboarding["jobs"] = {"scout": "pending", "recommendations": "skipped"}
                 if state.get("variant") == "test-github":
-                    config.onboarding["jobs"] = {"scout": "pending", "recommendations": "pending"}
+                    config.onboarding["jobs"]["recommendations"] = "pending"
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
@@ -213,7 +243,7 @@ class InboxOnboarding:
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}
-        if state.get("variant") != "test-github":
+        if state.get("variant") not in ("test-github", "test-ui"):
             return
         self.authorize_scouts(True)
         from products.signals.backend.tasks import (
