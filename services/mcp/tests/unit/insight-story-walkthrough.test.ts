@@ -1,0 +1,168 @@
+import { describe, expect, it } from 'vitest'
+
+import type { InsightStoryData } from 'products/product_analytics/mcp/apps/insightStory/insightStoryTypes'
+import { chapterFacts, overviewFacts } from 'products/product_analytics/mcp/apps/insightStory/storyFacts'
+import { placeMarkers } from 'products/product_analytics/mcp/apps/insightStory/storyMarkerPlacement'
+import { buildStoryPages } from 'products/product_analytics/mcp/apps/insightStory/storyPages'
+
+const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
+const MARKER_LAYOUT = { radius: 10, distance: 22, bounds: { left: 0, top: 0, right: 400, bottom: 300 } }
+
+describe('insight story walkthrough', () => {
+    it('keeps a small rate from rounding to zero', () => {
+        const facts = chapterFacts([0.02, 0.02, 0.02, 0.02, 0.02], DAYS, [1, 3], {
+            interval: 'day',
+            lastPointInProgress: false,
+            formatValue: (value) => `${value * 100}%`,
+        })
+
+        expect(facts).toContain('2%')
+        expect(facts).not.toContain('0%')
+    })
+
+    it('describes a series with more points than a function call can take', () => {
+        const values = Array.from({ length: 200_000 }, (_, index) => index % 7)
+
+        expect(
+            overviewFacts(values, { interval: 'minute', lastPointInProgress: false, formatValue: String })
+        ).toContain('The range runs from 0 to 6.')
+    })
+
+    it('counts a negative bucket as activity', () => {
+        const facts = overviewFacts([1, -1, -1, 2, 3, -1], {
+            interval: 'day',
+            lastPointInProgress: false,
+            formatValue: String,
+        })
+
+        expect(facts).not.toContain('Only')
+    })
+
+    it('keeps a per-second chart in seconds', () => {
+        const seconds = ['2026-10-01 10:00:00', '2026-10-01 10:00:01', '2026-10-01 10:00:02', '2026-10-01 10:00:03']
+        const facts = chapterFacts([1, 2, 3, 4], seconds, [1, 2], {
+            interval: 'second',
+            lastPointInProgress: false,
+            formatValue: String,
+        })
+
+        expect(facts).toContain('typical second')
+        expect(facts).toContain('10:00:01')
+    })
+
+    it('does not call a stretch empty when only its unfinished last point has activity', () => {
+        const facts = chapterFacts([0, 0, 20], DAYS.slice(0, 3), [0, 2], {
+            interval: 'day',
+            lastPointInProgress: true,
+            formatValue: String,
+        })
+
+        expect(facts).not.toContain('no activity')
+    })
+
+    it.each([
+        ['a start below zero', [-1e20, 0]],
+        ['a fractional index', [0.5, 1]],
+        ['an end past the last point', [1, 3]],
+    ])('shows a chapter with %s as one without a point', (_, range) => {
+        const data = {
+            query: { kind: 'TrendsQuery', interval: 'day', series: [] },
+            results: [{ label: 'signed_up', data: [1, 2, 3], days: DAYS.slice(0, 3) }],
+            seriesIndex: 0,
+            insightName: 'Sign-ups',
+            lastPointInProgress: false,
+            headline: 'A headline.',
+            chapters: [
+                {
+                    title: 'A chapter',
+                    range,
+                    summary: null,
+                    cause: null,
+                    confidence: null,
+                    confidenceReason: null,
+                    evidence: [],
+                },
+            ],
+        } as unknown as InsightStoryData
+
+        const [, chapter] = buildStoryPages(data, String)
+
+        expect(chapter?.range).toBeNull()
+        expect(chapter?.anchor).toBeNull()
+    })
+
+    it('does not compare a period that has not ended with complete ones', () => {
+        const facts = chapterFacts([60, 62, 58, 61, 9], DAYS, [4, 4], {
+            interval: 'day',
+            lastPointInProgress: true,
+            formatValue: String,
+        })
+
+        expect(facts).not.toContain('below')
+        expect(facts).toContain('not over yet')
+    })
+
+    it('puts a chart marker straight above a peak', () => {
+        const peak = [
+            { x: 100, y: 200 },
+            { x: 120, y: 50 },
+            { x: 140, y: 200 },
+        ]
+
+        const [center] = placeMarkers([{ x: 120, y: 50 }], { lines: [peak], bars: [] }, MARKER_LAYOUT)
+
+        expect(center?.x).toBeCloseTo(120)
+        expect(center?.y).toBeCloseTo(28)
+    })
+
+    it.each([
+        {
+            name: 'a line that falls into the last point at the right edge',
+            line: [
+                { x: 320, y: 120 },
+                { x: 360, y: 160 },
+                { x: 400, y: 200 },
+            ],
+            anchors: [{ x: 400, y: 200 }],
+        },
+        {
+            name: 'a spike that reaches the top of the chart',
+            line: [
+                { x: 100, y: 200 },
+                { x: 120, y: 8 },
+                { x: 140, y: 200 },
+            ],
+            anchors: [{ x: 120, y: 8 }],
+        },
+        {
+            name: 'two marked points next to each other',
+            line: [
+                { x: 80, y: 150 },
+                { x: 160, y: 150 },
+            ],
+            anchors: [
+                { x: 110, y: 150 },
+                { x: 120, y: 150 },
+            ],
+        },
+    ])('keeps chart markers off the line, apart and inside the chart for $name', ({ line, anchors }) => {
+        const centers = placeMarkers(anchors, { lines: [line], bars: [] }, MARKER_LAYOUT)
+        const { radius, bounds } = MARKER_LAYOUT
+
+        for (const [index, center] of centers.entries()) {
+            expect(center.x - radius).toBeGreaterThanOrEqual(bounds.left)
+            expect(center.x + radius).toBeLessThanOrEqual(bounds.right)
+            expect(center.y - radius).toBeGreaterThanOrEqual(bounds.top)
+            expect(center.y + radius).toBeLessThanOrEqual(bounds.bottom)
+            for (const [from, to] of line.slice(1).map((point, i) => [line[i]!, point] as const)) {
+                for (let t = 0; t <= 1; t += 0.02) {
+                    const onLine = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
+                    expect(Math.hypot(center.x - onLine.x, center.y - onLine.y)).toBeGreaterThanOrEqual(radius)
+                }
+            }
+            for (const other of centers.slice(index + 1)) {
+                expect(Math.hypot(center.x - other.x, center.y - other.y)).toBeGreaterThanOrEqual(radius * 2)
+            }
+        }
+    })
+})
