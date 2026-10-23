@@ -2,18 +2,159 @@ from __future__ import annotations
 
 import json
 import asyncio
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, Literal
+from uuid import UUID
 
-from unittest import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.runner import WorkflowCleanupError
+from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.signals.evals import scout_runner
+from products.signals.evals.first_report_fixture import CURRENT_VERSION, upload_events
+from products.signals.evals.first_report_scorers import (
+    GroundedCloseout,
+    PlantedIssueRecall,
+    ReportQuality,
+    ScoutOutcome,
+)
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
+
+class TestFirstReportFixture(TestCase):
+    @parameterized.expand([("regression", 140, 560), ("control", 560, 0)])
+    def test_regression_and_control_have_matched_mature_cohorts(
+        self, scenario: Literal["regression", "control"], uploads: int, errors: int
+    ) -> None:
+        anchor = datetime(2026, 1, 1, tzinfo=UTC)
+        events = upload_events(anchor, scenario=scenario)
+        counts = Counter(
+            (event.properties["$browser"], event.properties["app_version"], event.event) for event in events
+        )
+        self.assertEqual(counts[("Safari", CURRENT_VERSION, "signed_up")], 700)
+        self.assertEqual(counts[("Safari", CURRENT_VERSION, "uploaded_file")], uploads)
+        self.assertEqual(counts[("Safari", CURRENT_VERSION, "$exception")], errors)
+        self.assertEqual(counts[("Chrome", CURRENT_VERSION, "uploaded_file")], 560)
+        self.assertTrue(all(anchor - event.timestamp > timedelta(days=1) for event in events))
+        signups = {event.person_id: event.timestamp for event in events if event.event == "signed_up"}
+        self.assertTrue(
+            all(
+                event.timestamp > signups[event.person_id]
+                for event in events
+                if event.event in ("uploaded_file", "$exception")
+            )
+        )
+        self.assertEqual(
+            {event.person_id for event in events if event.event == "$identify"},
+            set(signups),
+        )
+        self.assertTrue(all(str(UUID(event.distinct_id)) == event.distinct_id for event in events))
+
+    def test_sparse_project_has_data_but_no_evidence_of_a_regression(self) -> None:
+        events = upload_events(datetime(2026, 1, 1, tzinfo=UTC), scenario="sparse")
+        self.assertEqual(Counter(event.event for event in events), {"signed_up": 4})
+        self.assertEqual(len({event.person_id for event in events}), 4)
+
+
+class TestFirstReportScorers(TestCase):
+    @parameterized.expand(
+        [
+            ("Four signups are insufficient to establish a regression.", True),
+            ("This project has no recorded events.", True),
+            ("This project has no recorded events.", False),
+        ]
+    )
+    def test_closeout_judge_receives_final_explanation(self, summary: str, persisted_summary: bool) -> None:
+        output: dict[str, Any] = {
+            "exit_code": 0,
+            "outcome": "insufficient_data",
+            "checked_products": ["product_analytics"],
+            "missing_data": ["More mature signup cohorts"],
+            "seed": {"scenario": "sparse", "cohorts": [{"signups": 4}]},
+            "last_message": summary if persisted_summary else None,
+            "raw_log": json.dumps(
+                {
+                    "type": "notification",
+                    "notification": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_message",
+                                "content": {
+                                    "type": "text",
+                                    "text": "Earlier progress" if persisted_summary else summary,
+                                },
+                            }
+                        },
+                    },
+                }
+            ),
+        }
+        prepared = GroundedCloseout()._prepare(output, {"scenario": "sparse"})
+        self.assertIsInstance(prepared, dict)
+        assert isinstance(prepared, dict)
+        payload = json.loads(prepared["output"])
+        self.assertEqual(payload["closeout"], summary)
+        self.assertEqual(payload["oracle"]["cohorts"], [{"signups": 4}])
+
+    @parameterized.expand(
+        [
+            ("regression", "report_created", "ready", 1, True, 1.0),
+            ("regression", "report_created", "candidate", 1, True, 0.0),
+            ("regression", "report_created", "ready", 0, True, 0.0),
+            ("regression", "report_created", "ready", 2, True, 0.0),
+            ("regression", "no_actionable_finding", "ready", 0, True, 0.0),
+            ("control", "no_actionable_finding", "ready", 0, True, 1.0),
+            ("sparse", "insufficient_data", "ready", 0, True, 1.0),
+            ("sparse", "insufficient_data", "ready", 1, True, 0.0),
+            ("sparse", "insufficient_data", "ready", 0, False, 0.0),
+        ]
+    )
+    def test_outcome_requires_persisted_visible_report_or_honest_abstention(
+        self, scenario: str, outcome: str, status: str, reports: int, explanation: bool, expected: float
+    ) -> None:
+        output: dict[str, Any] = {
+            "exit_code": 0,
+            "outcome": outcome,
+            "reports": [{"status": status, "summary": "An actionable finding", "visible_after_seconds": 20}] * reports,
+            "checked_products": ["product_analytics"],
+            "missing_data": ["More mature signup cohorts"] if explanation else [],
+        }
+        self.assertEqual(ScoutOutcome().eval(output, {"scenario": scenario}).score, expected)
+
+    @parameterized.expand([(None,), ({},), ({"exit_code": 1, "outcome": "insufficient_data"},)])
+    def test_missing_or_failed_agent_outputs_do_not_disappear_from_scores(self, output: dict[str, Any] | None) -> None:
+        for scorer in [GroundedCloseout(), ReportQuality(), PlantedIssueRecall()]:
+            prepared = scorer._prepare(output, {"scenario": "regression"})
+            self.assertIsInstance(prepared, Score)
+            assert isinstance(prepared, Score)
+            self.assertEqual(prepared.score, 0.0)
+        self.assertEqual(ScoutOutcome().eval(output, {"scenario": "regression"}).score, 0.0)
+
+    @parameterized.expand([(299, True), (300, True), (301, False), (None, False), (-1, False)])
+    def test_fast_delivery_still_requires_quality_judgment(self, seconds: float | None, should_judge: bool) -> None:
+        output: dict[str, Any] = {
+            "exit_code": 0,
+            "outcome": "report_created",
+            "first_report_seconds": seconds,
+            "reports": [{"status": "ready", "summary": "A report"}],
+            "seed": {"scenario": "regression", "cohorts": [{"signups": 700}]},
+        }
+        prepared = ReportQuality(deadline_seconds=300)._prepare(output, {"scenario": "regression"})
+        if should_judge:
+            self.assertIsInstance(prepared, dict)
+            assert isinstance(prepared, dict)
+            self.assertIn('"signups": 700', prepared["output"])
+        else:
+            self.assertIsInstance(prepared, Score)
+            assert isinstance(prepared, Score)
+            self.assertEqual(prepared.score, 0.0)
 
 
 class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
