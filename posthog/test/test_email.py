@@ -24,6 +24,7 @@ from prometheus_client import REGISTRY
 
 from posthog.email import (
     CUSTOMER_IO_TEMPLATE_ID_MAP,
+    WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
     WorkflowsEmailError,
     _send_email,
@@ -810,6 +811,9 @@ class TestEmail(BaseTest):
             "the Customer.io transactional message ID, otherwise the sender will raise "
             "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
+
+        # A Workflows key that names no template would never match a send, so that template stays on Customer.io.
+        self.assertEqual(set(WORKFLOWS_TEMPLATE_ID_MAP) - set(CUSTOMER_IO_TEMPLATE_ID_MAP), set())
 
 
 class TestMessagingHashSalt(BaseTest):
