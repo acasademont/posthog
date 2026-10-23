@@ -11,6 +11,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
+from products.signals.backend.facade.scout_visibility import system_scout_skill_names
 
 from ..activity_logging import log_skill_activity
 from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
@@ -94,6 +95,8 @@ def validate_new_skill_name_value(value: str) -> str:
     a name that points at a skill the project already holds (see `bundled_skill_name_error`).
     """
     value = validate_skill_name_value(value)
+    if value in system_scout_skill_names():
+        raise serializers.ValidationError("This skill is managed by Self-driving onboarding.", code="reserved_name")
     if error := bundled_skill_name_error(value):
         raise serializers.ValidationError(error, code="bundled_skill_name")
     return value

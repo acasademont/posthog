@@ -58,6 +58,17 @@ SKILL_ANALYTICS_REPORT = "products.skills.backend.api.skill_analytics.report_use
 
 
 class TestLLMSkillAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_skill_is_available_through_the_api(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        skill = self.create_skill(name="signals-scout-first-report", category="scout")
+        response = self.client.get(self._url("?category=scout"))
+        assert response.status_code == 200
+        assert any(row["name"] == skill.name for row in response.json()["results"])
+        assert self.client.get(self._url(f"name/{skill.name}")).status_code == 200
+        assert self.client.get(self._url(f"name/{skill.id}")).status_code == 302
+
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
 

@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reduce
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { objectsEqual } from 'lib/utils/objects'
+import { userLogic } from 'scenes/userLogic'
 
 import { usersGithubLoginRetrieve } from '~/generated/core/api'
 import api, { ApiConfig } from '~/lib/api'
@@ -462,7 +464,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         skills: [
             { results: [], count: 0 } as PaginatedLLMSkillListListApi,
             {
-                loadSkills: async ({ debounce }, breakpoint) => {
+                loadSkills: async ({ debounce }, breakpoint): Promise<PaginatedLLMSkillListListApi> => {
                     if (debounce && values.skills.results.length > 0) {
                         await breakpoint(300)
                     }
@@ -503,7 +505,13 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
                     // The API layer returns null for a body-less response, which would crash every selector here.
                     const response = await llmSkillsList(String(ApiConfig.getCurrentTeamId()), params)
-                    return response ?? { results: [], count: 0 }
+                    if (!response) {
+                        return { results: [], count: 0 }
+                    }
+                    const results = response.results.filter(
+                        (skill) => userLogic.values.user?.is_staff || skill.name !== FIRST_REPORT_SCOUT_NAME
+                    )
+                    return { ...response, results, count: response.count - (response.results.length - results.length) }
                 },
             },
         ],
