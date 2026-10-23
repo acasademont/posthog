@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,6 +11,10 @@ from parameterized import parameterized
 from posthog.clickhouse.client.connection import Workload
 
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.first_report_experiment import (
+    first_report_outcome_properties,
+    resolve_first_report_experiment,
+)
 from products.signals.backend.first_report_scout import build_first_report_context, first_report_state
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
@@ -17,6 +22,51 @@ from products.signals.backend.scout_harness.tools.profile import compute_project
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+class TestFirstReportExperiment(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("control", "acp", "codex", "gpt-6.1-sol", "high", "priority"),
+            ("deepseek-fast", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None, None),
+        ]
+    )
+    def test_variant_selects_the_whole_runtime(
+        self, variant: str, runtime: str, adapter: str | None, model: str, effort: str | None, tier: str | None
+    ) -> None:
+        team = Mock(id=123, uuid="project-uuid")
+        with patch(
+            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag", return_value=variant
+        ) as flag:
+            assignment = resolve_first_report_experiment(team)
+        assert assignment is not None
+        assert assignment.variant == variant
+        assert (
+            assignment.agent_runtime.runtime,
+            assignment.agent_runtime.runtime_adapter,
+            assignment.agent_runtime.model,
+            assignment.agent_runtime.reasoning_effort,
+            assignment.agent_runtime.service_tier,
+        ) == (runtime, adapter, model, effort, tier)
+        assert flag.call_args.kwargs["groups"] == {"project": "project-uuid"}
+        assert flag.call_args.kwargs["send_feature_flag_events"] is False
+
+    @parameterized.expand([(False,), (None,), (True,), ("unknown",)])
+    def test_unenrolled_or_invalid_variant_keeps_existing_routing(self, variant: object) -> None:
+        with patch(
+            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag", return_value=variant
+        ):
+            assert resolve_first_report_experiment(Mock(id=123, uuid="project-uuid")) is None
+
+    def test_flag_outage_keeps_existing_routing(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
+                side_effect=RuntimeError("unavailable"),
+            ),
+            patch("products.signals.backend.first_report_experiment.capture_exception"),
+        ):
+            assert resolve_first_report_experiment(Mock(id=123, uuid="project-uuid")) is None
 
 
 class TestFirstReportScout(BaseTest):
@@ -91,6 +141,32 @@ class TestFirstReportScout(BaseTest):
         result = first_report_state(self.team.id)
         assert result["status"] == expected
         assert result["task_run_id"] == str(task_run.id)
+
+    @parameterized.expand([(True, "report_created"), (False, "insufficient_data")])
+    def test_experiment_measures_persisted_delivery_even_when_run_failed(self, delivered: bool, expected: str) -> None:
+        task = Task.objects.create(team=self.team, title="First investigation")
+        task_run = TaskRun.objects.create(team=self.team, task=task, status="failed")
+        report = (
+            SignalReport.objects.create(
+                team=self.team, status="ready", first_visible_at=task_run.created_at + timedelta(seconds=120)
+            )
+            if delivered
+            else None
+        )
+        run = SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=task_run,
+            skill_name=FIRST_REPORT_SCOUT,
+            skill_version=1,
+            emitted_report_ids=[str(report.id)] if report else [],
+            metadata={"first_report_result": {"outcome": "insufficient_data"}},
+        )
+        properties = first_report_outcome_properties(self.team.id, str(run.id))
+        assert properties["first_report_outcome"] == expected
+        assert properties["report_delivered"] is delivered
+        assert properties["report_delivered_within_five_minutes"] is delivered
+        if delivered:
+            assert properties["first_report_latency_seconds"] == 120
 
     def test_query_failure_is_unknown_instead_of_no_data(self) -> None:
         with patch(

@@ -249,8 +249,7 @@ def mint_refusal(
         refusal = _posthog_code_refusal(team_id, model)
         if refusal:
             return refusal
-    # Pi reaches Go only for posthog_code.
-    elif runtime == "pi":
+    elif runtime == "pi" and not (ai_product == "signals_scout" and origin_product == "signals_scout" and internal):
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):

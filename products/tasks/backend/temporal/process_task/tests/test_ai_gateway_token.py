@@ -620,7 +620,7 @@ class TestProvisioningBoundaries:
         "task_runtime,tokens,initializes_cost,incomplete",
         [
             ("acp", ("phe_abc",), True, False),
-            ("pi", ("phe_abc",), False, True),
+            ("pi", ("phe_abc",), True, False),
             ("acp", (None,), False, True),
             ("acp", ("phe_abc", None, "phe_abc"), True, True),
             ("acp", (None, "phe_abc"), True, True),
@@ -643,9 +643,7 @@ class TestProvisioningBoundaries:
         with patch.object(utils, "mint_scoped_token", side_effect=tokens):
             for token in tokens:
                 env = utils.run_gateway_env_vars(ctx, self._task())
-                assert env.get("AI_GATEWAY_TOKEN") == (
-                    token if isinstance(token, str) and task_runtime != "pi" else None
-                )
+                assert env.get("AI_GATEWAY_TOKEN") == (token if isinstance(token, str) else None)
         test_task_run.refresh_from_db()
         assert ("token_cost" in test_task_run.state) is initializes_cost
         assert ("unprocessed_request_ids" in test_task_run.state) is initializes_cost
@@ -884,6 +882,16 @@ class TestProvisioningBoundaries:
             patch.object(utils, "record_gateway_routing"),
         ):
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
+
+    @pytest.mark.parametrize("mint_result", [None, RuntimeError("gateway unavailable")])
+    def test_pi_scout_does_not_fall_back_when_gateway_mint_fails(self, mint_settings, mint_result):
+        ctx = self._ctx()
+        ctx.task_runtime = "pi"
+        with (
+            patch.object(utils, "mint_scoped_token", side_effect=[mint_result]),
+            pytest.raises(GatewayTokenUnavailableError, match="scoped AI gateway token"),
+        ):
+            utils.run_gateway_env_vars(ctx, self._task())
 
     @pytest.mark.parametrize("uses_gateway", [False, True])
     def test_routing_is_not_returned_when_accounting_write_fails(self, uses_gateway: bool) -> None:
@@ -1329,6 +1337,24 @@ class TestMintRefusalScope:
     @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout", "posthog_ai"])
     def test_pi_runs_of_other_products_never_mint(self, product):
         assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
+
+    @pytest.mark.parametrize(
+        "internal,origin,expected",
+        [(True, "signals_scout", None), (False, "signals_scout", "pi_runtime"), (True, "loop", "pi_runtime")],
+    )
+    def test_pi_scout_requires_server_provenance(self, internal, origin, expected):
+        assert (
+            mint_refusal(
+                "signals_scout",
+                team_id=2,
+                state=None,
+                model="deepseek-ai/deepseek-v4.1-flash-1017-fast",
+                runtime="pi",
+                internal=internal,
+                origin_product=origin,
+            )
+            == expected
+        )
 
     @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
