@@ -62,6 +62,7 @@ import {
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
 import { Component } from '../components/Component'
+import { InsightStory, type InsightStoryData } from '../components/InsightStory'
 
 export interface RenderDispatchProps {
     data: unknown
@@ -435,6 +436,9 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'inline-scan': ({ data }) => <InlineScanView data={data as InlineScanData} />,
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
+    ),
+    'insight-story': ({ data, openLink, app }) => (
+        <InsightStory data={data as InsightStoryData} openLink={openLink} app={app} />
     ),
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'query-results': ({ data }) => <Component data={data} />,

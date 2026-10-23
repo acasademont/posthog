@@ -285,6 +285,7 @@ describe('ui-apps', () => {
                     view_prop: 'data',
                     data_type: 'InsightStoryData',
                     link_prop: 'openLink',
+                    app_prop: 'app',
                 },
             })
             if (!storyConfig.render_ui) {
@@ -326,7 +327,7 @@ describe('ui-apps', () => {
             expect(code).toContain("import { Component } from '../components/Component'")
             expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
             expect(code).toContain(
-                "'insight-story': ({ data, openLink }) => <InsightStory data={data as InsightStoryData} openLink={openLink} />"
+                "'insight-story': ({ data, openLink, app }) => <InsightStory data={data as InsightStoryData} openLink={openLink} app={app} />"
             )
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
