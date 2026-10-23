@@ -1079,7 +1079,6 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
-        """Show the reader one tip about a feature they have not used, if one is due. Best-effort."""
         if not self.actor_slack_user_id:
             return
         try:
