@@ -300,7 +300,12 @@ It assigns the first 10 eligible people in the saved order and records the rest 
 The report list keeps every member; the limit applies only to GitHub delivery and never selects replacements.
 The report remains the source of the assignment. Logs record the first-assignment outcome with counts of unavailable accounts, unassignable people, people omitted by the limit, permission failures, and GitHub delivery failures.
 
-The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
+A transient GitHub failure, or a write whose outcome is unknown, retries with backoff up to five times over about half an hour.
+Every attempt rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls.
+An assignment that reached GitHub appears as an existing assignment, so the worker does not repeat it.
+A permanent GitHub response, a closed pull request, an existing or hand-removed assignment, and a disabled flag end the attempt without retry.
+Enabling a flag later does not replay suppressed work; the next pull request event queues a fresh attempt.
+
 Queued work and retries use the current personal setting.
 Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
 This first version copies the list only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.

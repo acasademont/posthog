@@ -76,7 +76,8 @@ ASSIGNABLE_PR_STATES = frozenset(
     }
 )
 
-FirstAssignmentStatus = Literal["assigned", "skipped"]
+FirstAssignmentStatus = Literal["assigned", "skipped", "retryable_failure", "permanent_failure", "unknown_write"]
+FailureStatus = Literal["retryable_failure", "permanent_failure"]
 
 
 @frozen
@@ -88,6 +89,11 @@ class FirstAssignment:
     outside GitHub's assignee cap, so it is distinct from a missing account link (`unlinked`) and
     from GitHub refusing the person in the repository (`unassignable`). The accepted list itself is
     never changed to fit the cap.
+
+    `skipped` is a decision, not a failure: a protected pull request, a disabled flag, or nobody
+    eligible. Only a transient failure or a write whose outcome is unknown earns a retry, and the
+    retry re-reads the pull request first, so a write that did land is found as an existing
+    assignment rather than repeated.
     """
 
     status: FirstAssignmentStatus
@@ -97,9 +103,44 @@ class FirstAssignment:
     unassignable: int = 0
     limited: int = 0
 
+    @property
+    def retryable(self) -> bool:
+        return self.status in ("retryable_failure", "unknown_write")
+
     @classmethod
     def skipped(cls, reason: str) -> FirstAssignment:
         return cls(status="skipped", reason=reason)
+
+    @classmethod
+    def failed(cls, status: FailureStatus, reason: str) -> FirstAssignment:
+        return cls(status=status, reason=reason)
+
+
+def _failure_status(result: dict[str, Any]) -> FailureStatus:
+    """A GitHub client result without a status code never reached GitHub, so it is retryable.
+
+    A 429 or 5xx response is GitHub asking for a later attempt. Any other response GitHub sent is a
+    decision about this request, and sending it again cannot change it.
+    """
+    status_code = result.get("status_code")
+    if status_code is None or status_code == 429 or status_code >= 500:
+        return "retryable_failure"
+    return "permanent_failure"
+
+
+@frozen
+class PullRequestRead:
+    pr: dict[str, Any] | None = None
+    failure: FailureStatus | None = None
+
+
+@frozen
+class AssigneeWrite:
+    """What GitHub reports after an add-assignees call. `unknown` means the call may have landed."""
+
+    assignees: tuple[str, ...] = ()
+    failure: FailureStatus | None = None
+    unknown: bool = False
 
 
 def schedule_reviewer_pr_assignment(
@@ -272,30 +313,14 @@ def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
     return list(dict.fromkeys(login for login in candidates if login))
 
 
-def _github_for_repository(*, team_id: int, report_id: str, repository: str) -> GitHubIntegration | None:
-    """The team's GitHub integration for a repository, or None when there is none to call."""
-    try:
-        return GitHubIntegration.first_for_team_repository(
-            team_id, repository, source="signals_reviewers", priority=Priority.BATCH
-        )
-    except Exception:
-        logger.exception(
-            "signals.reviewer_pr_assignment.integration_lookup_failed",
-            team_id=team_id,
-            report_id=report_id,
-            repository=repository,
-        )
-        return None
-
-
 def _assignable_pull_request(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
-) -> dict[str, Any] | None:
-    """The pull request as GitHub reports it, or None when it no longer accepts assignees.
+) -> PullRequestRead:
+    """The pull request as GitHub reports it, with no `pr` when it no longer accepts assignees.
 
     A pull request closed or merged since the assignment was queued must not be reopened in
     somebody's assigned list, so this reads the state from GitHub rather than trusting the queued
-    snapshot. A read that fails counts as not assignable.
+    snapshot. A read that fails counts as not assignable and carries whether a retry can help.
     """
     try:
         pr = github.get_pull_request(parsed.repository, parsed.number)
@@ -307,7 +332,7 @@ def _assignable_pull_request(
             repository=parsed.repository,
             pr_number=parsed.number,
         )
-        return None
+        return PullRequestRead(failure="retryable_failure")
     if not pr.get("success"):
         logger.warning(
             "signals.reviewer_pr_assignment.pr_fetch_failed",
@@ -317,39 +342,41 @@ def _assignable_pull_request(
             pr_number=parsed.number,
             error=pr.get("error"),
         )
-        return None
+        return PullRequestRead(failure=_failure_status(pr))
     if pr.get("merged") or pr.get("state") == "closed":
-        return None
-    return pr
+        return PullRequestRead()
+    return PullRequestRead(pr=pr)
 
 
 def _add_assignees(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
-) -> list[str] | None:
+) -> AssigneeWrite:
     """Add the logins to the pull request.
 
-    Returns the pull request's assignees as GitHub reports them after the call, an empty list when
-    GitHub refused the call, and None when the outcome is unknown. A request that failed in transit
-    may still have reached GitHub, so the caller must not assign anybody else on top of it.
+    Returns the pull request's assignees as GitHub reports them after the call, a failure when
+    GitHub refused the call, and `unknown` when the outcome is unknown. A request that failed in
+    transit may still have reached GitHub, so the caller must not assign anybody else on top of it.
     """
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
-            return None
+            return AssigneeWrite(failure="permanent_failure")
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.assign_failed")
-        return None
+        return AssigneeWrite(unknown=True)
     if not result.get("success"):
         log.warning("signals.reviewer_pr_assignment.assign_failed", error=result.get("error"))
         # The client reports a status code only for a response GitHub sent.
-        return [] if result.get("status_code") is not None else None
+        if result.get("status_code") is None:
+            return AssigneeWrite(unknown=True)
+        return AssigneeWrite(failure=_failure_status(result))
 
-    assigned = list(result.get("assignees") or [])
+    assigned = tuple(result.get("assignees") or ())
     # Counts only: GitHub logins are member PII and must not reach logs. A `requested` above
     # `assigned` means GitHub dropped a login, usually one without push access to the repository.
     log.info("signals.reviewer_pr_assignment.assigned", requested=len(logins), assigned=len(assigned))
-    return assigned
+    return AssigneeWrite(assignees=assigned)
 
 
 def _request_reviews(
@@ -441,16 +468,19 @@ def _owning_team(
         return None
 
 
-def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef) -> bool:
-    """Whether somebody removed an assignee from the pull request. A failed read counts as yes.
+def _was_unassigned_by_hand(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
+) -> bool | None:
+    """Whether somebody removed an assignee from the pull request. None when the read failed.
 
-    A person who unassigned the DRI made a decision, and a later report event must not undo it.
+    A person who unassigned the DRI made a decision, and a later report event must not undo it, so
+    a caller treats a failed read as a decision it cannot see.
     """
     try:
         result = github.was_ever_unassigned(parsed.repository, parsed.number)
     except Exception:
         logger.exception("signals.reviewer_pr_assignment.events_fetch_failed", team_id=team_id, report_id=report_id)
-        return True
+        return None
     if not result.get("success"):
         logger.warning(
             "signals.reviewer_pr_assignment.events_fetch_failed",
@@ -458,7 +488,7 @@ def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_i
             report_id=report_id,
             error=result.get("error"),
         )
-        return True
+        return None
     return bool(result.get("unassigned"))
 
 
@@ -526,7 +556,10 @@ def _assign_report_reviewers(
 ) -> FirstAssignment:
     if pr.get("assignees"):
         return FirstAssignment.skipped("already_assigned")
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+    unassigned = _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed)
+    if unassigned is None:
+        return FirstAssignment.failed("retryable_failure", "events_fetch_failed")
+    if unassigned:
         return FirstAssignment.skipped("unassigned_by_hand")
 
     log = logger.bind(team_id=team_id, report_id=report_id)
@@ -550,7 +583,9 @@ def _assign_report_reviewers(
             result = github.is_assignable(parsed.repository, login)
             if not result.get("success"):
                 log.warning("signals.reviewer_pr_assignment.assignable_check_failed")
-                return FirstAssignment(status="skipped", reason="assignable_check_failed", unlinked=unlinked)
+                return FirstAssignment(
+                    status=_failure_status(result), reason="assignable_check_failed", unlinked=unlinked
+                )
             if result.get("assignable"):
                 assignable.append(login)
         unassignable = len(candidates) - len(assignable)
@@ -566,13 +601,18 @@ def _assign_report_reviewers(
         attempted = assignable[:MAX_PR_ASSIGNEES]
         outcome = replace(outcome, limited=len(assignable) - len(attempted))
 
-        current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-        if current_pr is None or current_pr.get("assignees"):
+        current = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
+        if current.failure:
+            return replace(outcome, status=current.failure, reason="pr_fetch_failed")
+        if current.pr is None or current.pr.get("assignees"):
             return replace(outcome, reason="pull_request_changed")
-        if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        unassigned = _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed)
+        if unassigned is None:
+            return replace(outcome, status="retryable_failure", reason="events_fetch_failed")
+        if unassigned:
             return replace(outcome, reason="unassigned_by_hand")
-        current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-        if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
+        latest = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
+        if latest.state != snapshot.state or _report_assignee_logins(team, latest) != candidates:
             return replace(outcome, reason="report_changed")
         if not (
             assignment_writer_enabled(team_id)
@@ -580,13 +620,15 @@ def _assign_report_reviewers(
             and assignment_side_effects_enabled(team_id)
         ):
             return replace(outcome, reason="delivery_disabled")
-        assigned = _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=attempted)
-        if not assigned:
-            return replace(outcome, reason="github_rejected")
-        return replace(outcome, status="assigned", assigned=tuple(assigned))
+        write = _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=attempted)
+        if write.unknown:
+            return replace(outcome, status="unknown_write", reason="assign_failed")
+        if write.failure:
+            return replace(outcome, status=write.failure, reason="assign_failed")
+        return replace(outcome, status="assigned", assigned=write.assignees)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.report_assignment_failed")
-        return FirstAssignment.skipped("error")
+        return FirstAssignment.failed("retryable_failure", "error")
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
@@ -596,32 +638,55 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     so a person somebody assigned by hand stays on the pull request. Returns an empty list when
     there is nothing to do or the call failed, and raises nothing.
     """
+    return list(deliver_pull_request_assignment(team_id=team_id, report_id=report_id, pr_url=pr_url).assigned)
+
+
+def deliver_pull_request_assignment(*, team_id: int, report_id: str, pr_url: str) -> FirstAssignment:
+    """One delivery attempt, with the outcome the worker uses to decide on a bounded retry.
+
+    Only the shared report assignment reports a retryable outcome. The legacy DRI and opt-in
+    policies stay best effort and report `assigned` or `skipped`.
+    """
     if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
-        return []
+        return FirstAssignment.skipped("delivery_disabled")
 
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
-        return []
+        return FirstAssignment.skipped("report_missing")
 
     shared_assignment = assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id)
     if shared_assignment and not assignment_side_effects_enabled(team_id):
-        return []
+        return FirstAssignment.skipped("delivery_disabled")
     logins = [] if shared_assignment else opted_in_assignee_logins(team_id=team_id, report_id=report_id)
     reviewers = ranked_reviewer_logins(team_id=team_id, report_id=report_id)
     dri_enabled = _pr_dri_enabled(team_id)
-    if not reviewers and not logins and not dri_enabled:
-        return []
+    if not reviewers and not logins and not dri_enabled and not shared_assignment:
+        return FirstAssignment.skipped("nothing_to_do")
 
     parsed = GitHubIntegration.parse_pull_request_url(pr_url)
     if parsed is None:
-        return []
+        return FirstAssignment.failed("permanent_failure", "invalid_pr_url")
 
-    github = _github_for_repository(team_id=team_id, report_id=report_id, repository=parsed.repository)
+    try:
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.BATCH
+        )
+    except Exception:
+        logger.exception(
+            "signals.reviewer_pr_assignment.integration_lookup_failed",
+            team_id=team_id,
+            report_id=report_id,
+            repository=parsed.repository,
+        )
+        return FirstAssignment.failed("retryable_failure", "integration_lookup_failed")
     if github is None:
-        return []
+        return FirstAssignment.failed("permanent_failure", "no_integration")
 
-    pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if pr is None:
-        return []
+    read = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
+    if read.failure:
+        return FirstAssignment.failed(read.failure, "pr_fetch_failed")
+    if read.pr is None:
+        return FirstAssignment.skipped("pull_request_closed")
+    pr = read.pr
 
     if shared_assignment:
         first = _assign_report_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
@@ -636,6 +701,8 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             unassignable=first.unassignable,
             limited=first.limited,
         )
+        if first.status != "assigned":
+            return first
         assigned = list(first.assigned)
     elif dri_enabled:
         assigned = _assign_one_dri(
@@ -647,12 +714,14 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             opted_in=set(logins),
             reviewers=reviewers,
         )
+        first = FirstAssignment(status="assigned" if assigned else "skipped", assigned=tuple(assigned))
     else:
         assigned = (
-            _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) or []
+            list(_add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins).assignees)
             if logins
             else []
         )
+        first = FirstAssignment(status="assigned" if assigned else "skipped", assigned=tuple(assigned))
 
     if shared_assignment:
         if not (
@@ -660,7 +729,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             and team_research_reviewer_selection_enabled(team_id)
             and assignment_side_effects_enabled(team_id)
         ):
-            return assigned
+            return first
         try:
             snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
             reviewers = (
@@ -672,11 +741,11 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             logger.exception(
                 "signals.reviewer_pr_assignment.reviewers_lookup_failed", team_id=team_id, report_id=report_id
             )
-            return assigned
-        current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-        if current_pr is None:
-            return assigned
-        pr = current_pr
+            return first
+        current = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
+        if current.pr is None:
+            return first
+        pr = current.pr
     _request_reviews(
         github,
         team_id=team_id,
@@ -685,7 +754,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
         reviewers=reviewers,
     )
-    return assigned
+    return first
 
 
 def _assign_one_dri(
@@ -705,7 +774,7 @@ def _assign_one_dri(
     """
     if pr.get("assignees"):
         return []
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed) is not False:
         return []
 
     candidates = dri_candidate_logins(
@@ -717,4 +786,4 @@ def _assign_one_dri(
     dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
     if dri is None:
         return []
-    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri]) or []
+    return list(_add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri]).assignees)

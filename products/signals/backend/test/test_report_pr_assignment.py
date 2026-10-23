@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import Retry
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
@@ -14,7 +15,12 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ReviewerEdit, SuggestedReviewerEntry, SuggestedReviewers
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
 from products.signals.backend.report_assignments import claim_report
-from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_assignment import (
+    FirstAssignment,
+    assign_reviewers_to_pull_request,
+    deliver_pull_request_assignment,
+)
+from products.signals.backend.tasks import assign_reviewers_on_implementation_pr
 from products.signals.backend.test.test_reviewer_pr_assignment import (
     _NOT_UNASSIGNED,
     PR_URL,
@@ -59,6 +65,13 @@ class TestReportPRAssignment:
             return_value=github,
         ):
             return assign_reviewers_to_pull_request(team_id=report.team_id, report_id=str(report.id), pr_url=PR_URL)
+
+    def deliver(self, report: SignalReport, github: MagicMock) -> FirstAssignment:
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            return deliver_pull_request_assignment(team_id=report.team_id, report_id=str(report.id), pr_url=PR_URL)
 
     @pytest.mark.parametrize("dri_enabled", [False, True])
     def test_pr_filters_opted_out_reviewers_without_reordering_or_replacing_them(
@@ -185,7 +198,7 @@ class TestReportPRAssignment:
         else:
             assert assigned == []
             github.add_pull_request_assignees.assert_not_called()
-            assert (outcome["status"], outcome["reason"]) == ("skipped", "assignable_check_failed")
+            assert (outcome["status"], outcome["reason"]) == ("retryable_failure", "assignable_check_failed")
         assert len(json.loads(report.artefacts.filter(type="suggested_reviewers").latest("created_at").content)) == 12
 
     def test_saved_human_edits_are_used_by_the_pr(self, org_and_team):
@@ -261,3 +274,126 @@ class TestReportPRAssignment:
 
         assert self.assign(report, github) == (["selected"] if opted_in else [])
         assert github.add_pull_request_assignees.call_count == (2 if opted_in else 1)
+
+    @pytest.mark.parametrize(
+        "failure,expected",
+        [
+            ("pr-network", "retryable_failure"),
+            ("pr-not-found", "permanent_failure"),
+            ("pr-closed", "skipped"),
+            ("events-network", "retryable_failure"),
+            ("check-network", "retryable_failure"),
+            ("check-forbidden", "permanent_failure"),
+            ("write-raises", "unknown_write"),
+            ("write-bad-gateway", "retryable_failure"),
+            ("write-unprocessable", "permanent_failure"),
+            ("delivery-off", "skipped"),
+        ],
+    )
+    def test_only_transient_and_unknown_delivery_failures_are_retryable(self, org_and_team, failure, expected):
+        org, team = org_and_team
+        _make_reviewer(org, "selected", opted_in=True)
+        report = _make_report(team, ["selected"])
+        github = self.github()
+        if failure == "pr-network":
+            github.get_pull_request.return_value = {"success": False, "error": "network"}
+        elif failure == "pr-not-found":
+            github.get_pull_request.return_value = {"success": False, "error": "gone", "status_code": 404}
+        elif failure == "pr-closed":
+            github.get_pull_request.return_value["state"] = "closed"
+        elif failure == "events-network":
+            github.was_ever_unassigned.return_value = {"success": False, "error": "network"}
+        elif failure == "check-network":
+            github.is_assignable.return_value = {"success": False, "error": "network"}
+        elif failure == "check-forbidden":
+            github.is_assignable.return_value = {"success": False, "error": "forbidden", "status_code": 403}
+        elif failure == "write-raises":
+            github.add_pull_request_assignees.side_effect = RuntimeError("socket closed")
+        elif failure == "write-bad-gateway":
+            github.add_pull_request_assignees.side_effect = None
+            github.add_pull_request_assignees.return_value = {"success": False, "error": "bad", "status_code": 502}
+        elif failure == "write-unprocessable":
+            github.add_pull_request_assignees.side_effect = None
+            github.add_pull_request_assignees.return_value = {"success": False, "error": "bad", "status_code": 422}
+
+        if failure == "delivery-off":
+            with patch(
+                "products.signals.backend.reviewer_pr_assignment.assignment_side_effects_enabled", return_value=False
+            ):
+                outcome = self.deliver(report, github)
+        else:
+            outcome = self.deliver(report, github)
+
+        assert outcome.status == expected
+        assert outcome.retryable is (expected in {"retryable_failure", "unknown_write"})
+        assert outcome.assigned == ()
+
+    @pytest.mark.parametrize("landed,opted_in", [(True, True), (False, True), (False, False)])
+    def test_a_retry_after_an_unknown_write_reads_github_before_writing_again(
+        self, org_and_team: tuple[Organization, Team], landed: bool, opted_in: bool
+    ) -> None:
+        org, team = org_and_team
+        selected = _make_reviewer(org, "selected", opted_in=True)
+        report = _make_report(team, ["selected"])
+        github = self.github()
+        github.add_pull_request_assignees.side_effect = RuntimeError("socket closed")
+
+        assert self.deliver(report, github).status == "unknown_write"
+
+        github.add_pull_request_assignees.side_effect = lambda _repo, _number, logins: {
+            "success": True,
+            "assignees": logins,
+        }
+        if landed:
+            github.get_pull_request.return_value["assignees"] = ["selected"]
+        SignalUserAutonomyConfig.objects.filter(user=selected).update(github_assign_on_pull_request=opted_in)
+        retry = self.deliver(report, github)
+
+        if landed:
+            assert (retry.status, retry.reason) == ("skipped", "already_assigned")
+            assert github.add_pull_request_assignees.call_count == 1
+        elif not opted_in:
+            assert (retry.status, retry.reason) == ("skipped", "no_assignable_recipients")
+            assert not retry.retryable
+            assert github.add_pull_request_assignees.call_count == 1
+        else:
+            assert (retry.status, retry.assigned) == ("assigned", ("selected",))
+            assert github.add_pull_request_assignees.call_count == 2
+
+
+@pytest.mark.django_db
+class TestFirstAssignmentRecovery:
+    def run_task(self, team_id: int, outcome: FirstAssignment, *, retries: int = 0) -> MagicMock:
+        task = assign_reviewers_on_implementation_pr
+        task.push_request(retries=retries)
+        try:
+            with (
+                patch("products.signals.backend.tasks.deliver_pull_request_assignment", return_value=outcome),
+                patch.object(task, "retry", side_effect=Retry()) as retry,
+            ):
+                if outcome.retryable and retries < task.max_retries:
+                    with pytest.raises(Retry):
+                        task.run(team_id=team_id, report_id="report", pr_url=PR_URL)
+                else:
+                    task.run(team_id=team_id, report_id="report", pr_url=PR_URL)
+        finally:
+            task.pop_request()
+        return retry
+
+    @pytest.mark.parametrize(
+        "status,countdowns",
+        [
+            ("assigned", []),
+            ("skipped", []),
+            ("permanent_failure", []),
+            ("retryable_failure", [60, 120, 240, 480, 900]),
+            ("unknown_write", [60, 120, 240, 480, 900]),
+        ],
+    )
+    def test_recovery_is_bounded_and_only_for_retryable_outcomes(self, org_and_team, status, countdowns):
+        _, team = org_and_team
+        outcome = FirstAssignment(status=status, reason="test")
+
+        for attempt, countdown in enumerate(countdowns):
+            self.run_task(team.id, outcome, retries=attempt).assert_called_once_with(countdown=countdown)
+        self.run_task(team.id, outcome, retries=len(countdowns)).assert_not_called()
